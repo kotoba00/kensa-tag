@@ -1,0 +1,74 @@
+[
+ {
+  "order_no": "100101",
+  "item_code": "DEMO-A10",
+  "customer": "顧客A",
+  "qty": 300,
+  "due_date": "2026-11-04",
+  "done": false,
+  "stock": false
+ },
+ {
+  "order_no": "100102",
+  "item_code": "DEMO-B20",
+  "customer": "顧客B",
+  "qty": 200,
+  "due_date": "2026-11-14",
+  "done": false,
+  "stock": false
+ },
+ {
+  "order_no": "100103",
+  "item_code": "DEMO-C30",
+  "customer": "顧客A",
+  "qty": 400,
+  "due_date": "2026-11-11",
+  "done": false,
+  "stock": false
+ },
+ {
+  "order_no": "100104",
+  "item_code": "DEMO-D40",
+  "customer": "顧客C",
+  "qty": 150,
+  "due_date": "2026-11-01",
+  "done": true,
+  "stock": false
+ },
+ {
+  "order_no": "100105",
+  "item_code": "DEMO-E50",
+  "customer": "顧客C",
+  "qty": 120,
+  "due_date": "2026-10-30",
+  "done": true,
+  "stock": false
+ },
+ {
+  "order_no": "100106",
+  "item_code": "DEMO-F60",
+  "customer": "顧客B",
+  "qty": 500,
+  "due_date": "2026-10-31",
+  "done": false,
+  "stock": false
+ },
+ {
+  "order_no": "100107",
+  "item_code": "DEMO-G70",
+  "customer": "顧客A",
+  "qty": 100,
+  "due_date": "2026-10-29",
+  "done": true,
+  "stock": false
+ },
+ {
+  "order_no": "9900001",
+  "item_code": "DEMO-Z99",
+  "customer": "自社",
+  "qty": 0,
+  "due_date": null,
+  "done": false,
+  "stock": true
+ }
+]

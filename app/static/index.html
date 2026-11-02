@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>検査場タグ</title>
+<style>
+:root {
+  --bg: #f4f5f2; --panel: #fff; --ink: #1d2320; --muted: #667069; --line: #d8dcd5;
+  --accent: #116a57; --ok: #116a57; --warn: #a96400; --bad: #b42318; --hi: #fff7e6;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #151816; --panel: #1f2421; --ink: #eef1ec; --muted: #a2aba4; --line: #39413b;
+    --accent: #58c4a8; --ok: #58c4a8; --warn: #e7a94b; --bad: #f2867a; --hi: #33290f; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink);
+  font: 16px/1.55 "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif; }
+header { padding: 14px 16px; border-bottom: 1px solid var(--line); background: var(--panel);
+  display: flex; gap: 16px; align-items: baseline; flex-wrap: wrap; }
+h1 { font-size: 20px; margin: 0; }
+header small { color: var(--muted); }
+main { max-width: 1180px; margin: 0 auto; padding: 16px; display: grid; gap: 16px;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); }
+section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; min-width: 0; }
+section.full { grid-column: 1 / -1; }
+h2 { font-size: 16px; margin: 0 0 10px; }
+#scan { width: 100%; font: 600 22px ui-monospace, Menlo, monospace; padding: 10px 12px;
+  border: 2px solid var(--accent); border-radius: 6px; background: var(--bg); color: var(--ink); }
+#result { margin-top: 12px; padding: 16px; border-radius: 6px; background: var(--bg); min-height: 96px; border-left: 6px solid var(--line); }
+#result b { display: block; font-size: 26px; line-height: 1.3; }
+#result[data-tone=ok] { border-color: var(--ok); }
+#result[data-tone=wait] { border-color: var(--accent); }
+#result[data-tone=warn] { border-color: var(--warn); }
+#result[data-tone=bad] { border-color: var(--bad); }
+#queue { color: var(--warn); font-size: 14px; margin-top: 8px; min-height: 22px; }
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 15px; }
+th { text-align: left; color: var(--muted); font-weight: 500; font-size: 13px; }
+th, td { padding: 7px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+td.num { font-variant-numeric: tabular-nums; }
+button.link { all: unset; color: var(--accent); cursor: pointer; text-decoration: underline; font-variant-numeric: tabular-nums; }
+button.link:focus-visible { outline: 2px solid var(--accent); }
+.due-soon { color: var(--bad); font-weight: 600; }
+.bar { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
+.bar h2 { margin: 0; }
+button.main { font: inherit; font-weight: 600; padding: 8px 14px; border-radius: 6px; border: 0; background: var(--accent); color: var(--panel); cursor: pointer; }
+button.main:disabled { opacity: .55; cursor: wait; }
+#summary { padding: 12px 14px; background: var(--hi); border-radius: 6px; margin-bottom: 12px; font-weight: 500; }
+#summary:empty { display: none; }
+.card { border-top: 1px solid var(--line); padding: 12px 0; }
+.card h3 { font-size: 16px; margin: 0 0 4px; }
+.tag { display: inline-block; font-size: 12px; padding: 1px 7px; border-radius: 4px; background: var(--bg); border: 1px solid var(--line); margin-right: 6px; }
+.tag.p0 { color: var(--bad); border-color: var(--bad); }
+.tag.p1 { color: var(--warn); border-color: var(--warn); }
+.ai { margin: 8px 0 0; padding-left: 12px; border-left: 3px solid var(--accent); }
+.ai dt { font-size: 12px; color: var(--muted); }
+.ai dd { margin: 0 0 6px; }
+.empty { color: var(--muted); }
+#err { color: var(--bad); margin-bottom: 8px; }
+#err:empty { display: none; }
+dialog { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--ink); width: min(720px, calc(100vw - 32px)); }
+dialog::backdrop { background: rgba(0,0,0,.4); }
+@media (max-width: 820px) { main { grid-template-columns: minmax(0, 1fr); } }
+</style>
+</head>
+<body>
+<header>
+  <h1>検査場タグ</h1>
+  <small>検査が終わった製品を、出荷より前に見えるようにする</small>
+</header>
+<main>
+  <section>
+    <h2>かざす</h2>
+    <input id="scan" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="読み取り入力" placeholder="QR またはカード">
+    <div id="result" data-tone="" aria-live="polite"><b>待機中</b><span>紐付けは QR → 分納番号と Enter → カード。検査場に戻ったらカードだけ。</span></div>
+    <div id="queue"></div>
+  </section>
+  <section>
+    <h2>いま検査場にあるもの <span id="count"></span></h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>注文番号</th><th>分納</th><th>品番</th><th>入った日</th><th>経過</th><th>納期まで</th></tr></thead>
+      <tbody id="list"></tbody>
+    </table></div>
+  </section>
+  <section class="full">
+    <div class="bar">
+      <h2>確認が要るもの <span id="acount"></span></h2>
+      <button class="main" id="triage">Claude に見てもらう</button>
+    </div>
+    <div id="err"></div>
+    <div id="summary"></div>
+    <div id="anoms"></div>
+  </section>
+</main>
+<dialog id="dlg"><div id="dlgBody"></div><form method="dialog"><button class="main">閉じる</button></form></dialog>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const QKEY = "kensa-queue";
+
+function deviceId() {
+  try {
+    let id = localStorage.getItem("kensa-device");
+    if (!id) { id = "kensa-" + crypto.randomUUID().slice(0, 8); localStorage.setItem("kensa-device", id); }
+    return id;
+  } catch { return "kensa-unsaved"; }
+}
+let memQueue = [];
+function loadQueue() { try { return JSON.parse(localStorage.getItem(QKEY) || "[]"); } catch { return memQueue; } }
+function saveQueue(q) { memQueue = q; try { localStorage.setItem(QKEY, JSON.stringify(q)); } catch {} }
+
+const TONES = { arrived:"ok", bound:"ok", order_set:"wait", already_in:"warn", already_bound:"warn", debounced:"warn", unbound:"bad", unknown:"bad", no_order:"bad", bunno_taken:"bad" };
+function show(r) {
+  const el = $("result");
+  el.dataset.tone = TONES[r.outcome] || "";
+  const who = r.order_no ? `注文 ${esc(r.order_no)}${r.bunno ? " / 分納 " + r.bunno : ""}` : "";
+  el.innerHTML = `<b>${esc(r.message)}</b><span>${who}</span>`;
+}
+
+let sending = false;
+async function flush() {
+  if (sending) return;
+  sending = true;
+  let q = loadQueue();
+  try {
+    // 順番を変えない。QR とカードの組が崩れるため
+    while (q.length) {
+      const res = await fetch("/api/scan", { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(q[0]) });
+      if (!res.ok) throw new Error(res.status);
+      const r = await res.json();
+      if (!r.replayed) show(r);
+      q = q.slice(1);
+      saveQueue(q);
+    }
+    $("queue").textContent = "";
+    refresh();
+  } catch {
+    $("queue").textContent = `送れていない読み取りが ${q.length} 件あります。自動で送り直します`;
+  } finally { sending = false; }
+}
+
+function enqueue(raw) {
+  const q = loadQueue();
+  q.push({ event_id: crypto.randomUUID(), raw, device_id: deviceId(), read_at: new Date().toISOString() });
+  saveQueue(q);
+  flush();
+}
+
+const input = $("scan");
+let composing = false;
+input.addEventListener("compositionstart", () => { composing = true; });
+input.addEventListener("compositionend", () => { composing = false; });
+input.addEventListener("keydown", e => {
+  if (e.key !== "Enter") return;
+  e.preventDefault();
+  const v = input.value.trim();
+  const wasComposing = composing || e.isComposing;
+  input.value = "";
+  if (wasComposing) {
+    $("result").dataset.tone = "bad";
+    $("result").innerHTML = "<b>日本語入力をオフにしてください</b><span>もう一度かざしてください</span>";
+    return;
+  }
+  if (v) enqueue(v);
+});
+// 読み取り機の文字がよそへ入らないよう、ダイアログ以外では入力欄に戻す
+document.addEventListener("click", e => {
+  if (!$("dlg").open && !e.target.closest("button, a")) input.focus();
+});
+window.addEventListener("focus", () => { if (!$("dlg").open) input.focus(); });
+$("dlg").addEventListener("close", () => input.focus());
+
+function bunnoLabel(b) { return b.bunno_entered ? String(b.bunno) : `${b.bunno}（仮）`; }
+function orderLink(no) { return `<button class="link" data-order="${esc(no)}">${esc(no)}</button>`; }
+document.addEventListener("click", e => {
+  const b = e.target.closest("[data-order]");
+  if (b) openOrder(b.dataset.order);
+});
+
+async function openOrder(no) {
+  const res = await fetch("/api/orders/" + encodeURIComponent(no));
+  if (!res.ok) return;
+  const o = await res.json();
+  const rows = o.bunnos.map(b => `<tr><td class="num">${bunnoLabel(b)}</td><td>${esc(b.place)}</td>
+    <td>${esc(fmt(b.arrived_at))}</td><td>${esc(b.shipped_on || "")}</td><td class="num">${b.qty || ""}</td></tr>`).join("");
+  $("dlgBody").innerHTML = `<h2>注文 ${esc(o.order_no)}</h2>
+    <p>${esc(o.item_code || "")} ／ ${esc(o.customer || "")} ／ 注文数 ${o.qty ?? "-"} ／ 納期 ${esc(o.due_date || "-")}${o.done ? " ／ 完納" : ""}</p>
+    <div class="table-wrap"><table><thead><tr><th>分納</th><th>いまどこ</th><th>検査場に入った</th><th>出荷日</th><th>出荷数</th></tr></thead>
+    <tbody>${rows || '<tr><td colspan="5" class="empty">記録がありません</td></tr>'}</tbody></table></div>`;
+  $("dlg").showModal();
+}
+
+function fmt(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
+}
+
+async function refreshList() {
+  const rows = await (await fetch("/api/inspection")).json();
+  $("count").textContent = `${rows.length} 件`;
+  $("list").innerHTML = rows.map(r => `<tr><td>${orderLink(r.order_no)}</td><td class="num">${bunnoLabel(r)}</td><td>${esc(r.item_code || "")}</td>
+    <td>${esc(fmt(r.arrived_at))}</td><td class="num">${r.days} 日</td>
+    <td class="num ${r.days_to_due !== null && r.days_to_due <= 3 ? "due-soon" : ""}">${r.days_to_due === null ? "-" : r.days_to_due + " 日"}</td></tr>`).join("")
+    || '<tr><td colspan="6" class="empty">検査場にあるものはありません</td></tr>';
+}
+
+const KIND = { forgotten:"かざし忘れ", stagnant:"滞留", qty_mismatch:"数量の照合", bunno_total:"分納の合計" };
+const ORDER = { "今日中":0, "今週中":1, "様子見":2 };
+function renderAnoms(data) {
+  const items = data.items;
+  $("acount").textContent = `${items.length} 件`;
+  const t = data.triage;
+  $("summary").textContent = t ? t.summary : "";
+  const byId = Object.fromEntries((t?.items || []).map(i => [i.anomaly_id, i]));
+  const sorted = [...items].sort((a, b) => (ORDER[byId[a.id]?.priority] ?? 3) - (ORDER[byId[b.id]?.priority] ?? 3));
+  $("anoms").innerHTML = sorted.map(a => {
+    const ai = byId[a.id];
+    const p = ai ? `<span class="tag p${ORDER[ai.priority]}">${esc(ai.priority)}</span>` : "";
+    const g = ai?.group ? `<span class="tag">${esc(ai.group)}</span>` : "";
+    return `<div class="card"><h3>${p}<span class="tag">${KIND[a.kind] || esc(a.kind)}</span>${g}</h3>
+      <div>注文 ${orderLink(a.order_no)}${a.bunno ? " / 分納 " + a.bunno : ""}： ${esc(a.title)}</div>
+      ${ai ? `<dl class="ai"><dt>考えられる原因</dt><dd>${esc(ai.likely_cause)}</dd><dt>次の一手（${esc(ai.ask_role)}）</dt><dd>${esc(ai.next_action)}</dd></dl>` : ""}</div>`;
+  }).join("") || '<p class="empty">確認が要るものはありません</p>';
+}
+async function refreshAnoms() { renderAnoms(await (await fetch("/api/anomalies")).json()); }
+async function refresh() { try { await Promise.all([refreshList(), refreshAnoms()]); } catch {} }
+
+$("triage").addEventListener("click", async () => {
+  const b = $("triage");
+  b.disabled = true; b.textContent = "考えています…"; $("err").textContent = "";
+  try {
+    const res = await fetch("/api/triage", { method:"POST" });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.detail || `Claude に聞けませんでした（${res.status}）`);
+    }
+    await refreshAnoms();
+  } catch (e) { $("err").textContent = e.message; }
+  finally { b.disabled = false; b.textContent = "Claude に見てもらう"; input.focus(); }
+});
+
+setInterval(flush, 5000);
+setInterval(refresh, 30000);
+input.focus();
+refresh();
+flush();
+</script>
+</body>
+</html>
