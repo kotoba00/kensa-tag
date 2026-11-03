@@ -8,7 +8,8 @@ CREATE TABLE IF NOT EXISTS reads (
     id INTEGER PRIMARY KEY,
     event_id TEXT NOT NULL UNIQUE,
     read_at TEXT NOT NULL,
-    location TEXT NOT NULL,
+    process TEXT NOT NULL,
+    phase TEXT NOT NULL,  -- point / start / end
     device_id TEXT NOT NULL,
     kind TEXT NOT NULL,
     value TEXT NOT NULL,
@@ -16,14 +17,13 @@ CREATE TABLE IF NOT EXISTS reads (
     outcome TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS reads_binding ON reads(binding_id, read_at);
-CREATE INDEX IF NOT EXISTS reads_value ON reads(value, location, read_at);
+CREATE INDEX IF NOT EXISTS reads_value ON reads(value, process, read_at);
 
 CREATE TABLE IF NOT EXISTS bindings (
     id INTEGER PRIMARY KEY,
     uid TEXT NOT NULL,
     order_no TEXT NOT NULL,
-    bunno INTEGER NOT NULL,
-    bunno_entered INTEGER NOT NULL,  -- 0 は読み取り順の仮番号
+    bunno INTEGER,  -- エレベーター前を通るまでは空
     started_at TEXT NOT NULL,
     ended_at TEXT,
     end_reason TEXT
@@ -35,7 +35,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS bindings_open_bunno ON bindings(order_no, bunn
 CREATE TABLE IF NOT EXISTS pending_orders (
     device_id TEXT PRIMARY KEY,
     order_no TEXT NOT NULL,
-    bunno INTEGER,
     read_at TEXT NOT NULL
 );
 

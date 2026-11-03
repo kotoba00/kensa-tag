@@ -64,11 +64,17 @@ def seed(db_path: Path, today: date) -> None:
     conn = connect(db_path)
     counter = 0
 
-    def scan(raw: str, days_ago: int, hour: int) -> None:
+    def scan(raw: str, process: str, days_ago: int, hour: int) -> None:
         nonlocal counter
         counter += 1
         at = datetime.combine(today - timedelta(days=days_ago), time(hour)).astimezone()
-        handle_scan(conn, event_id=f"seed-{counter}", raw=raw, device_id="demo-kensa-1", read_at=at)
+        handle_scan(conn, event_id=f"seed-{counter}", raw=raw, device_id=f"demo-{process}", read_at=at, process=process)
+
+    def bind(order_no: str, card: int, days_ago: int) -> str:
+        uid = CARD.format(card)
+        scan(order_no, "press", days_ago, 9)
+        scan(uid, "press", days_ago, 9)
+        return uid
 
     # (注文番号, カード, 紐付けの何日前, 検査場に入った何日前)
     flows = [
@@ -79,15 +85,13 @@ def seed(db_path: Path, today: date) -> None:
         ("100107", 7, 12, 7),
     ]
     for order_no, card, bound, arrived in flows:
-        uid = CARD.format(card)
-        scan(order_no, bound, 9)
-        scan("1", bound, 9)
-        scan(uid, bound, 9)
-        scan(uid, arrived, 15)
-    # 紐付けたまま検査場に戻っていないもの。出荷もない
-    scan("100103", 2, 9)
-    scan("2", 2, 9)
-    scan(CARD.format(8), 2, 9)
+        uid = bind(order_no, card, bound)
+        scan(uid, "elevator", bound, 11)
+        scan(uid, "inspection", arrived, 15)
+    # エレベーター前を通って、まだ検査場に戻っていないもの
+    scan(bind("100103", 8, 2), "elevator", 2, 11)
+    # 紐付けただけで、分納番号がまだ無いもの
+    bind("100103", 9, 0)
     conn.close()
 
 

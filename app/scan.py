@@ -4,16 +4,15 @@ import re
 import unicodedata
 from typing import Literal
 
-Kind = Literal["ntag", "uhf", "hf10", "order", "bunno", "unknown"]
+Kind = Literal["ntag", "uhf", "hf", "order", "unknown"]
 
 _RULES: list[tuple[Kind, re.Pattern[str]]] = [
     ("uhf", re.compile(r"E2[0-9A-F]{22}")),
     ("ntag", re.compile(r"04[0-9A-F]{12}")),
-    ("hf10", re.compile(r"\d{10}")),
-    # 通常は6桁。特殊な注文番号があるので幅を持たせる
-    ("order", re.compile(r"\d{5,9}")),
-    # QR に分納番号が無いので、記録票の「分納 n/m」の n を手で打つ
-    ("bunno", re.compile(r"[1-9]\d{0,2}")),
+    # 4バイト（16進8桁か10進10桁）と7バイト。同じカードでも読み取り機で長さが違う
+    ("hf", re.compile(r"\d{10}|[0-9A-F]{8}|[0-9A-F]{14}")),
+    # 通常は6桁、在庫向けは7桁。8桁は HF の UID と区別できない
+    ("order", re.compile(r"\d{5,7}")),
 ]
 
 

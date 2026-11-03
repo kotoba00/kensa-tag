@@ -25,10 +25,19 @@ main { max-width: 1180px; margin: 0 auto; padding: 16px; display: grid; gap: 16p
 section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; min-width: 0; }
 section.full { grid-column: 1 / -1; }
 h2 { font-size: 16px; margin: 0 0 10px; }
+#stations { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+#phases { display: flex; gap: 6px; margin-bottom: 10px; }
+#phases:empty { display: none; }
+.pick { font: inherit; font-size: 15px; padding: 7px 12px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); cursor: pointer; }
+.pick[aria-pressed=true] { background: var(--accent); border-color: var(--accent); color: var(--panel); font-weight: 600; }
+#lookup { display: flex; gap: 6px; margin-bottom: 10px; }
+#lookup input { font: inherit; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); width: 11em; }
 #scan { width: 100%; font: 600 22px ui-monospace, Menlo, monospace; padding: 10px 12px;
   border: 2px solid var(--accent); border-radius: 6px; background: var(--bg); color: var(--ink); }
+#scan::placeholder { font: 400 15px "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif; }
 #result { margin-top: 12px; padding: 16px; border-radius: 6px; background: var(--bg); min-height: 96px; border-left: 6px solid var(--line); }
 #result b { display: block; font-size: 26px; line-height: 1.3; }
+#result b.big { font-size: 64px; line-height: 1.1; }
 #result[data-tone=ok] { border-color: var(--ok); }
 #result[data-tone=wait] { border-color: var(--accent); }
 #result[data-tone=warn] { border-color: var(--warn); }
@@ -67,19 +76,22 @@ dialog::backdrop { background: rgba(0,0,0,.4); }
 <body>
 <header>
   <h1>検査場タグ</h1>
-  <small>検査が終わった製品を、出荷より前に見えるようにする</small>
+  <small>カードをかざすだけで、製品がいまどの工程にあるかを見えるようにする</small>
 </header>
 <main>
   <section>
-    <h2>かざす</h2>
+    <h2>この端末の工程</h2>
+    <div id="stations" role="group" aria-label="工程"></div>
+    <div id="phases" role="group" aria-label="開始か終了か"></div>
     <input id="scan" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="読み取り入力" placeholder="QR またはカード">
-    <div id="result" data-tone="" aria-live="polite"><b>待機中</b><span>紐付けは QR → 分納番号と Enter → カード。検査場に戻ったらカードだけ。</span></div>
+    <div id="result" data-tone="" aria-live="polite"></div>
     <div id="queue"></div>
   </section>
   <section>
-    <h2>いま検査場にあるもの <span id="count"></span></h2>
+    <h2>いま<span id="cpName">検査場</span>にあるもの <span id="count"></span></h2>
+    <form id="lookup"><input id="lookupNo" inputmode="numeric" autocomplete="off" aria-label="注文番号" placeholder="注文番号"><button class="pick">分納の場所を見る</button></form>
     <div class="table-wrap"><table>
-      <thead><tr><th>注文番号</th><th>分納</th><th>品番</th><th>入った日</th><th>経過</th><th>納期まで</th></tr></thead>
+      <thead><tr><th>注文番号</th><th>分納</th><th>品番</th><th>数量</th><th>入った日</th><th>経過</th><th>納期まで</th></tr></thead>
       <tbody id="list"></tbody>
     </table></div>
   </section>
@@ -111,12 +123,14 @@ let memQueue = [];
 function loadQueue() { try { return JSON.parse(localStorage.getItem(QKEY) || "[]"); } catch { return memQueue; } }
 function saveQueue(q) { memQueue = q; try { localStorage.setItem(QKEY, JSON.stringify(q)); } catch {} }
 
-const TONES = { arrived:"ok", bound:"ok", order_set:"wait", already_in:"warn", already_bound:"warn", debounced:"warn", unbound:"bad", unknown:"bad", no_order:"bad", bunno_taken:"bad" };
+const TONES = { recorded:"ok", bound:"ok", assigned:"ok", order_set:"wait", already_recorded:"warn", already_bound:"warn", already_assigned:"ok", debounced:"warn", unbound:"bad", unknown:"bad", no_order:"bad", wrong_process:"bad", unknown_process:"bad" };
 function show(r) {
   const el = $("result");
   el.dataset.tone = TONES[r.outcome] || "";
   const who = r.order_no ? `注文 ${esc(r.order_no)}${r.bunno ? " / 分納 " + r.bunno : ""}` : "";
-  el.innerHTML = `<b>${esc(r.message)}</b><span>${who}</span>`;
+  // エレベーター前では、番号を離れた場所からでも読めるように大きく出す
+  const big = r.outcome === "assigned" || r.outcome === "already_assigned";
+  el.innerHTML = big ? `<b class="big">分納 ${r.bunno}</b><span>注文 ${esc(r.order_no)}</span>` : `<b>${esc(r.message)}</b><span>${who}</span>`;
 }
 
 let sending = false;
@@ -143,7 +157,8 @@ async function flush() {
 
 function enqueue(raw) {
   const q = loadQueue();
-  q.push({ event_id: crypto.randomUUID(), raw, device_id: deviceId(), read_at: new Date().toISOString() });
+  // 工程は読んだ時点のものを持たせる。送り直しの間に切り替えても変わらない
+  q.push({ event_id: crypto.randomUUID(), raw, device_id: deviceId(), read_at: new Date().toISOString(), process: station.code, phase });
   saveQueue(q);
   flush();
 }
@@ -167,12 +182,47 @@ input.addEventListener("keydown", e => {
 });
 // 読み取り機の文字がよそへ入らないよう、ダイアログ以外では入力欄に戻す
 document.addEventListener("click", e => {
-  if (!$("dlg").open && !e.target.closest("button, a")) input.focus();
+  if (!$("dlg").open && !e.target.closest("button, a, #lookup")) input.focus();
 });
 window.addEventListener("focus", () => { if (!$("dlg").open) input.focus(); });
 $("dlg").addEventListener("close", () => input.focus());
 
-function bunnoLabel(b) { return b.bunno_entered ? String(b.bunno) : `${b.bunno}（仮）`; }
+function bunnoLabel(b) { return b.bunno ?? "未採番"; }
+function qtyLabel(q) { return q ?? "未定"; }
+
+const HINT = {
+  bind: "記録票の QR を読んで、カードをかざす",
+  assign: "カードをかざすと、分納番号を出す",
+  record: "カードをかざす",
+};
+let flow = null, station = null, phase = "point";
+function storedStation() { try { return localStorage.getItem("kensa-station"); } catch { return null; } }
+function renderStation() {
+  $("stations").innerHTML = flow.processes.map(p => `<button class="pick" data-station="${esc(p.code)}" aria-pressed="${p === station}">${esc(p.name)}</button>`).join("");
+  const twoWay = station.phases.length > 1;
+  $("phases").innerHTML = twoWay ? station.phases.map(ph => `<button class="pick" data-phase="${ph}" aria-pressed="${ph === phase}">${ph === "start" ? "開始" : "終了"}</button>`).join("") : "";
+  $("scan").placeholder = HINT[station.action];
+  $("result").dataset.tone = "";
+  $("result").innerHTML = `<b>${esc(station.name)}</b><span>${esc(HINT[station.action])}</span>`;
+}
+function pickStation(p) {
+  station = p;
+  if (!p.phases.includes(phase)) phase = p.phases[0];
+  try { localStorage.setItem("kensa-station", p.code); } catch {}
+  renderStation();
+}
+document.addEventListener("click", e => {
+  const s = e.target.closest("[data-station]");
+  if (s) { pickStation(flow.processes.find(p => p.code === s.dataset.station)); input.focus(); }
+  const ph = e.target.closest("[data-phase]");
+  if (ph) { phase = ph.dataset.phase; renderStation(); input.focus(); }
+});
+$("lookup").addEventListener("submit", e => {
+  e.preventDefault();
+  const no = $("lookupNo").value.trim();
+  $("lookupNo").value = "";
+  if (no) openOrder(no); else input.focus();
+});
 function orderLink(no) { return `<button class="link" data-order="${esc(no)}">${esc(no)}</button>`; }
 document.addEventListener("click", e => {
   const b = e.target.closest("[data-order]");
@@ -181,14 +231,19 @@ document.addEventListener("click", e => {
 
 async function openOrder(no) {
   const res = await fetch("/api/orders/" + encodeURIComponent(no));
-  if (!res.ok) return;
+  if (!res.ok) {
+    $("result").dataset.tone = "bad";
+    $("result").innerHTML = `<b>注文 ${esc(no)} は見つかりません</b>`;
+    input.focus();
+    return;
+  }
   const o = await res.json();
   const rows = o.bunnos.map(b => `<tr><td class="num">${bunnoLabel(b)}</td><td>${esc(b.place)}</td>
-    <td>${esc(fmt(b.arrived_at))}</td><td>${esc(b.shipped_on || "")}</td><td class="num">${b.qty || ""}</td></tr>`).join("");
+    <td>${esc(fmt(b.last_read_at))}</td><td class="num">${qtyLabel(b.produced)}</td><td>${esc(b.shipped_on || "")}</td><td class="num">${b.qty || ""}</td></tr>`).join("");
   $("dlgBody").innerHTML = `<h2>注文 ${esc(o.order_no)}</h2>
     <p>${esc(o.item_code || "")} ／ ${esc(o.customer || "")} ／ 注文数 ${o.qty ?? "-"} ／ 納期 ${esc(o.due_date || "-")}${o.done ? " ／ 完納" : ""}</p>
-    <div class="table-wrap"><table><thead><tr><th>分納</th><th>いまどこ</th><th>検査場に入った</th><th>出荷日</th><th>出荷数</th></tr></thead>
-    <tbody>${rows || '<tr><td colspan="5" class="empty">記録がありません</td></tr>'}</tbody></table></div>`;
+    <div class="table-wrap"><table><thead><tr><th>分納</th><th>いまどこ</th><th>最後に読んだ</th><th>数量</th><th>出荷日</th><th>出荷数</th></tr></thead>
+    <tbody>${rows || '<tr><td colspan="6" class="empty">記録がありません</td></tr>'}</tbody></table></div>`;
   $("dlg").showModal();
 }
 
@@ -201,10 +256,10 @@ function fmt(iso) {
 async function refreshList() {
   const rows = await (await fetch("/api/inspection")).json();
   $("count").textContent = `${rows.length} 件`;
-  $("list").innerHTML = rows.map(r => `<tr><td>${orderLink(r.order_no)}</td><td class="num">${bunnoLabel(r)}</td><td>${esc(r.item_code || "")}</td>
+  $("list").innerHTML = rows.map(r => `<tr><td>${orderLink(r.order_no)}</td><td class="num">${bunnoLabel(r)}</td><td>${esc(r.item_code || "")}</td><td class="num">${qtyLabel(r.qty)}</td>
     <td>${esc(fmt(r.arrived_at))}</td><td class="num">${r.days} 日</td>
     <td class="num ${r.days_to_due !== null && r.days_to_due <= 3 ? "due-soon" : ""}">${r.days_to_due === null ? "-" : r.days_to_due + " 日"}</td></tr>`).join("")
-    || '<tr><td colspan="6" class="empty">検査場にあるものはありません</td></tr>';
+    || '<tr><td colspan="7" class="empty">いまはありません</td></tr>';
 }
 
 const KIND = { forgotten:"かざし忘れ", stagnant:"滞留", qty_mismatch:"数量の照合", bunno_total:"分納の合計" };
@@ -221,7 +276,7 @@ function renderAnoms(data) {
     const p = ai ? `<span class="tag p${ORDER[ai.priority]}">${esc(ai.priority)}</span>` : "";
     const g = ai?.group ? `<span class="tag">${esc(ai.group)}</span>` : "";
     return `<div class="card"><h3>${p}<span class="tag">${KIND[a.kind] || esc(a.kind)}</span>${g}</h3>
-      <div>注文 ${orderLink(a.order_no)}${a.bunno ? " / 分納 " + a.bunno : ""}： ${esc(a.title)}</div>
+      <div>${esc(a.title)} ${orderLink(a.order_no)}</div>
       ${ai ? `<dl class="ai"><dt>考えられる原因</dt><dd>${esc(ai.likely_cause)}</dd><dt>次の一手（${esc(ai.ask_role)}）</dt><dd>${esc(ai.next_action)}</dd></dl>` : ""}</div>`;
   }).join("") || '<p class="empty">確認が要るものはありません</p>';
 }
@@ -242,11 +297,17 @@ $("triage").addEventListener("click", async () => {
   finally { b.disabled = false; b.textContent = "Claude に見てもらう"; input.focus(); }
 });
 
-setInterval(flush, 5000);
-setInterval(refresh, 30000);
-input.focus();
-refresh();
-flush();
+async function start() {
+  flow = await (await fetch("/api/flow")).json();
+  $("cpName").textContent = flow.checkpoint_name;
+  pickStation(flow.processes.find(p => p.code === storedStation()) || flow.processes[0]);
+  setInterval(flush, 5000);
+  setInterval(refresh, 30000);
+  input.focus();
+  refresh();
+  flush();
+}
+start();
 </script>
 </body>
 </html>

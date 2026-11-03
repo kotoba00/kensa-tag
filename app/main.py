@@ -12,7 +12,8 @@ from pydantic import AwareDatetime, BaseModel
 
 from .db import connect
 from .detect import detect
-from .service import handle_scan
+from .flow import flow
+from .service import POINT, handle_scan
 from .source import JsonSource
 from .triage import TriageUnavailable, latest_report, run_triage, save_report
 from .views import in_inspection, order_detail
@@ -40,6 +41,8 @@ class ScanIn(BaseModel):
     raw: str
     device_id: str
     read_at: AwareDatetime
+    process: str
+    phase: str = POINT
 
 
 @app.post("/api/scan")
@@ -50,8 +53,20 @@ def scan(body: ScanIn, conn: Conn):
         raw=body.raw,
         device_id=body.device_id,
         read_at=body.read_at,
+        process=body.process,
+        phase=body.phase,
     )
     return result.__dict__
+
+
+@app.get("/api/flow")
+def get_flow():
+    f = flow()
+    return {
+        "checkpoint": f.checkpoint,
+        "checkpoint_name": f.checkpoint_name,
+        "processes": [p.__dict__ for p in f.processes],
+    }
 
 
 @app.get("/api/inspection")

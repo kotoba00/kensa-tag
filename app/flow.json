@@ -1,0 +1,11 @@
+{
+  "checkpoint": "inspection",
+  "processes": [
+    {"code": "press", "name": "プレス", "action": "bind", "phases": ["point"]},
+    {"code": "elevator", "name": "エレベーター前", "action": "assign", "phases": ["point"]},
+    {"code": "homework", "name": "内職検査", "action": "record", "phases": ["start", "end"]},
+    {"code": "inspection", "name": "検査場", "action": "record", "phases": ["point"]},
+    {"code": "final_check", "name": "出荷検査", "action": "record", "phases": ["start", "end"]},
+    {"code": "packing", "name": "包装", "action": "record", "phases": ["start", "end"]}
+  ]
+}

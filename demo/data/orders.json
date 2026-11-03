@@ -4,7 +4,7 @@
   "item_code": "DEMO-A10",
   "customer": "顧客A",
   "qty": 300,
-  "due_date": "2026-11-04",
+  "due_date": "2026-11-05",
   "done": false,
   "stock": false
  },
@@ -13,7 +13,7 @@
   "item_code": "DEMO-B20",
   "customer": "顧客B",
   "qty": 200,
-  "due_date": "2026-11-14",
+  "due_date": "2026-11-15",
   "done": false,
   "stock": false
  },
@@ -22,7 +22,7 @@
   "item_code": "DEMO-C30",
   "customer": "顧客A",
   "qty": 400,
-  "due_date": "2026-11-11",
+  "due_date": "2026-11-12",
   "done": false,
   "stock": false
  },
@@ -31,7 +31,7 @@
   "item_code": "DEMO-D40",
   "customer": "顧客C",
   "qty": 150,
-  "due_date": "2026-11-01",
+  "due_date": "2026-11-02",
   "done": true,
   "stock": false
  },
@@ -40,7 +40,7 @@
   "item_code": "DEMO-E50",
   "customer": "顧客C",
   "qty": 120,
-  "due_date": "2026-10-30",
+  "due_date": "2026-10-31",
   "done": true,
   "stock": false
  },
@@ -49,7 +49,7 @@
   "item_code": "DEMO-F60",
   "customer": "顧客B",
   "qty": 500,
-  "due_date": "2026-10-31",
+  "due_date": "2026-11-01",
   "done": false,
   "stock": false
  },
@@ -58,7 +58,7 @@
   "item_code": "DEMO-G70",
   "customer": "顧客A",
   "qty": 100,
-  "due_date": "2026-10-29",
+  "due_date": "2026-10-30",
   "done": true,
   "stock": false
  },

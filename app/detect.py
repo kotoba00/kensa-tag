@@ -8,7 +8,7 @@ from collections import defaultdict
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, time
 
-from .service import INSPECTION
+from .flow import flow
 from .source import Order, ProductionSource, Shipment
 
 STAGNANT_DAYS = 3
@@ -48,11 +48,15 @@ def _arrivals(conn: sqlite3.Connection) -> dict[tuple[str, int], str]:
     rows = conn.execute(
         """SELECT b.order_no, b.bunno, MIN(r.read_at) AS first_read
            FROM reads r JOIN bindings b ON b.id = r.binding_id
-           WHERE r.location = ? AND r.outcome = 'arrived'
+           WHERE r.process = ? AND r.outcome = 'recorded'
            GROUP BY b.order_no, b.bunno""",
-        (INSPECTION,),
+        (flow().checkpoint,),
     ).fetchall()
     return {(r["order_no"], r["bunno"]): r["first_read"] for r in rows}
+
+
+def _who(order_no: str, bunno: int | None) -> str:
+    return f"注文{order_no}の分納{bunno}" if bunno is not None else f"注文{order_no}の分納番号が未定の分"
 
 
 def _tracking_start(conn: sqlite3.Connection) -> date | None:
@@ -94,7 +98,7 @@ def _forgotten(conn, shipments, arrivals, orders) -> list[Anomaly]:
                 kind="forgotten",
                 order_no=s.order_no,
                 bunno=s.bunno,
-                title="出荷されたのに検査場の読み取りがない",
+                title=f"{_who(s.order_no, s.bunno)}は出荷データに載っていますが、{flow().checkpoint_name}で読まれていません。",
                 evidence={
                     "ship_date": s.ship_date.isoformat(),
                     "qty": s.qty,
@@ -123,7 +127,7 @@ def _stagnant(conn, shipments, arrivals, orders, today) -> list[Anomaly]:
                 kind="stagnant",
                 order_no=order_no,
                 bunno=bunno,
-                title=f"検査場に入って{days}日、出荷データに載っていない",
+                title=f"{_who(order_no, bunno)}が、{flow().checkpoint_name}で読まれてから{days}日経っていますが、出荷データに載っていません。",
                 evidence={
                     "arrived_at": first_read,
                     "days": days,
@@ -155,7 +159,7 @@ def _qty_mismatch(source: ProductionSource, shipments) -> list[Anomaly]:
                     kind="qty_mismatch",
                     order_no=lot.order_no,
                     bunno=lot.bunno,
-                    title=f"生産数と包装の計量が{diff:+d}個違う",
+                    title=f"{_who(lot.order_no, lot.bunno)}は、生産数{lot.produced}個に対して包装の計量が{packed[key]}個で、{diff:+d}個違います。",
                     evidence={"produced": lot.produced, "packed": packed[key], "diff": diff},
                 )
             )
@@ -180,7 +184,7 @@ def _bunno_total(shipments, orders: dict[str, Order]) -> list[Anomaly]:
                 kind="bunno_total",
                 order_no=order_no,
                 bunno=None,
-                title=f"完納なのに分納の合計が注文数と{total - order.qty:+d}個違う",
+                title=f"注文{order_no}は完納ですが、分納の合計{total}個が注文数{order.qty}個と{total - order.qty:+d}個違います。",
                 evidence={
                     "ordered": order.qty,
                     "shipped_net": total,

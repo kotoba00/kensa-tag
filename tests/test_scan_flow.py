@@ -7,6 +7,7 @@ import anthropic
 import pytest
 
 from app.db import connect
+from app.flow import flow
 from app.detect import close_shipped, detect
 from app.scan import classify
 from app.service import handle_scan
@@ -19,6 +20,7 @@ T0 = datetime(2026, 11, 2, 9, 0, tzinfo=JST)
 TODAY = date(2026, 11, 2)
 CARD_A = "04A1B2C3D4E5F6"
 CARD_B = "04A1B2C3D4E5F7"
+CARD_C = "04A1B2C3D4E5F8"
 
 
 @dataclass
@@ -46,9 +48,21 @@ class Scanner:
     def __init__(self, conn):
         self.conn, self.n = conn, 0
 
-    def __call__(self, raw, at=T0, device="d1"):
+    def __call__(self, raw, at=T0, device="d1", process="press", phase="point"):
         self.n += 1
-        return handle_scan(self.conn, event_id=f"e{self.n}", raw=raw, device_id=device, read_at=at)
+        return handle_scan(
+            self.conn, event_id=f"e{self.n}", raw=raw, device_id=device, read_at=at, process=process, phase=phase
+        )
+
+    def bind(self, no="100001", card=CARD_A, at=T0, device="d1"):
+        self(no, at, device)
+        return self(card, at + timedelta(seconds=1), device)
+
+    def elevator(self, card=CARD_A, at=T0):
+        return self(card, at, process="elevator")
+
+    def inspection(self, card=CARD_A, at=T0):
+        return self(card, at, process="inspection")
 
 
 def order(no="100001", qty=100, due=None, done=False, stock=False):
@@ -62,8 +76,12 @@ def order(no="100001", qty=100, due=None, done=False, stock=False):
         ("9900002", "order"),
         ("04a1b2c3d4e5f6", "ntag"),
         ("０４A1B2C3D4E5F6", "ntag"),  # 日本語入力オンの全角
-        ("1234567890", "hf10"),
+        ("1234567890", "hf"),
+        ("1234abcd", "hf"),
+        ("12345678", "hf"),
+        ("A1B2C3D4E5F607", "hf"),
         ("E2" + "0" * 22, "uhf"),
+        ("3", "unknown"),
         ("hello", "unknown"),
     ],
 )
@@ -71,90 +89,101 @@ def test_classify(raw, kind):
     assert classify(raw)[0] == kind
 
 
-def test_bind_then_arrive(conn):
+def test_bind_leaves_number_empty(conn):
     s = Scanner(conn)
     assert s("100001").outcome == "order_set"
     r = s(CARD_A, T0 + timedelta(seconds=5))
-    assert (r.outcome, r.order_no, r.bunno) == ("bound", "100001", 1)
-    assert s(CARD_A, T0 + timedelta(hours=3)).outcome == "arrived"
+    assert (r.outcome, r.order_no, r.bunno) == ("bound", "100001", None)
+    assert conn.execute("SELECT bunno FROM bindings").fetchone()["bunno"] is None
+
+
+def test_elevator_assigns_number(conn):
+    s = Scanner(conn)
+    s.bind()
+    r = s.elevator(at=T0 + timedelta(minutes=5))
+    assert (r.outcome, r.order_no, r.bunno) == ("assigned", "100001", 1)
+    assert r.message == "分納番号は 1 番です"
+
+
+def test_elevator_right_after_binding_is_not_debounced(conn):
+    s = Scanner(conn)
+    s.bind()
+    assert s.elevator(at=T0 + timedelta(seconds=2)).outcome == "assigned"
+
+
+def test_elevator_twice_keeps_number(conn):
+    s = Scanner(conn)
+    s.bind()
+    s.elevator()
+    assert s.elevator(at=T0 + timedelta(seconds=2)).outcome == "debounced"
+    r = s.elevator(at=T0 + timedelta(hours=1))
+    assert (r.outcome, r.bunno) == ("already_assigned", 1)
+    assert conn.execute("SELECT COUNT(*) FROM bindings").fetchone()[0] == 1
+
+
+def test_numbers_follow_elevator_order_not_binding_order(conn):
+    s = Scanner(conn)
+    s.bind(card=CARD_A)
+    s.bind(card=CARD_B, at=T0 + timedelta(seconds=20))
+    assert s.elevator(CARD_B, T0 + timedelta(minutes=1)).bunno == 1
+    assert s.elevator(CARD_A, T0 + timedelta(minutes=2)).bunno == 2
+
+
+def test_number_is_not_reused_after_rebinding(conn):
+    s = Scanner(conn)
+    s.bind(card=CARD_A)
+    s.elevator(CARD_A)
+    s.bind("100002", CARD_A, T0 + timedelta(minutes=1))
+    s.bind("100001", CARD_B, T0 + timedelta(minutes=2))
+    assert s.elevator(CARD_B, T0 + timedelta(minutes=3)).bunno == 2
+
+
+def test_elevator_without_binding(conn):
+    assert Scanner(conn).elevator().outcome == "unbound"
 
 
 def test_card_held_after_binding_is_not_arrival(conn):
     s = Scanner(conn)
-    s("100001")
-    s(CARD_A)
+    s.bind()
     assert s(CARD_A, T0 + timedelta(seconds=3)).outcome == "debounced"
     assert in_inspection(conn, FakeSource(o=[order()]), TODAY) == []
 
 
-def test_entered_bunno_is_used(conn):
+def test_order_is_refused_outside_binding(conn):
     s = Scanner(conn)
-    s("100001")
-    assert s("3").bunno == 3
-    r = s(CARD_A, T0 + timedelta(seconds=2))
-    assert (r.outcome, r.bunno) == ("bound", 3)
-    row = conn.execute("SELECT bunno_entered FROM bindings").fetchone()
-    assert row["bunno_entered"] == 1
+    assert s("100001", process="elevator").outcome == "wrong_process"
+    assert conn.execute("SELECT COUNT(*) FROM pending_orders").fetchone()[0] == 0
 
 
-def test_skipped_bunno_is_marked_provisional(conn):
-    s = Scanner(conn)
-    s("100001")
-    assert s(CARD_A).bunno == 1
-    assert conn.execute("SELECT bunno_entered FROM bindings").fetchone()["bunno_entered"] == 0
-
-
-def test_bunno_without_order_is_rejected(conn):
-    assert Scanner(conn)("3").outcome == "no_order"
-
-
-def test_same_bunno_on_other_card_is_rejected(conn):
-    s = Scanner(conn)
-    s("100001")
-    s("3")
-    s(CARD_A)
-    s("100001", T0 + timedelta(seconds=20))
-    s("3", T0 + timedelta(seconds=20))
-    r = s(CARD_B, T0 + timedelta(seconds=21))
-    assert r.outcome == "bunno_taken"
-    assert conn.execute("SELECT COUNT(*) FROM bindings").fetchone()[0] == 1
+def test_tag_at_press_without_order(conn):
+    assert Scanner(conn)(CARD_A).outcome == "no_order"
 
 
 def test_binding_twice_keeps_number(conn):
     s = Scanner(conn)
-    s("100001")
-    s(CARD_A, T0 + timedelta(seconds=1))
-    s("100001", T0 + timedelta(seconds=2))
-    r = s(CARD_A, T0 + timedelta(seconds=3))
+    s.bind()
+    s.elevator()
+    r = s.bind(at=T0 + timedelta(minutes=1))
     assert (r.outcome, r.bunno) == ("already_bound", 1)
 
 
 def test_read_twice_debounces_and_no_new_number(conn):
     s = Scanner(conn)
-    s("100001")
-    s(CARD_A)
+    s.bind()
+    s.elevator()
     at = T0 + timedelta(hours=1)
-    assert s(CARD_A, at).outcome == "arrived"
-    assert s(CARD_A, at + timedelta(seconds=2)).outcome == "debounced"
-    assert s(CARD_A, at + timedelta(hours=1)).outcome == "already_in"
+    assert s.inspection(at=at).outcome == "recorded"
+    assert s.inspection(at=at + timedelta(seconds=2)).outcome == "debounced"
+    assert s.inspection(at=at + timedelta(hours=1)).outcome == "already_recorded"
     assert conn.execute("SELECT COUNT(*) FROM bindings").fetchone()[0] == 1
 
 
-def test_second_card_gets_next_number(conn):
+def test_rebind_closes_previous_and_clears_number(conn):
     s = Scanner(conn)
-    s("100001")
-    s(CARD_A)
-    s("100001", T0 + timedelta(seconds=9))
-    assert s(CARD_B, T0 + timedelta(seconds=10)).bunno == 2
-
-
-def test_rebind_closes_previous(conn):
-    s = Scanner(conn)
-    s("100001")
-    s(CARD_A)
-    s("100002", T0 + timedelta(seconds=9))
-    r = s(CARD_A, T0 + timedelta(seconds=10))
-    assert (r.order_no, r.bunno) == ("100002", 1)
+    s.bind()
+    s.elevator()
+    r = s.bind("100002", at=T0 + timedelta(seconds=10))
+    assert (r.order_no, r.bunno) == ("100002", None)
     row = conn.execute("SELECT end_reason FROM bindings WHERE order_no='100001'").fetchone()
     assert row["end_reason"] == "rebound"
 
@@ -162,12 +191,12 @@ def test_rebind_closes_previous(conn):
 def test_expired_order_does_not_bind(conn):
     s = Scanner(conn)
     s("100001")
-    assert s(CARD_A, T0 + timedelta(minutes=2)).outcome == "unbound"
+    assert s(CARD_A, T0 + timedelta(minutes=2)).outcome == "no_order"
 
 
 def test_replayed_event_is_stored_once(conn):
     for _ in range(2):
-        r = handle_scan(conn, event_id="same", raw="100001", device_id="d", read_at=T0)
+        r = handle_scan(conn, event_id="same", raw="100001", device_id="d", read_at=T0, process="press")
     assert r.replayed
     assert conn.execute("SELECT COUNT(*) FROM reads").fetchone()[0] == 1
 
@@ -175,14 +204,56 @@ def test_replayed_event_is_stored_once(conn):
 def test_devices_do_not_share_pending_order(conn):
     s = Scanner(conn)
     s("100001", device="d1")
-    assert s(CARD_A, device="d2").outcome == "unbound"
+    assert s(CARD_A, device="d2").outcome == "no_order"
+
+
+def test_start_and_end_are_recorded_separately(conn):
+    s = Scanner(conn)
+    s.bind()
+    s.elevator()
+    at = T0 + timedelta(hours=1)
+    assert s(CARD_A, at, process="packing", phase="start").message == "包装を開始しました"
+    assert s(CARD_A, at + timedelta(seconds=2), process="packing", phase="end").outcome == "recorded"
+    rows = conn.execute("SELECT phase FROM reads WHERE process='packing' ORDER BY id").fetchall()
+    assert [r["phase"] for r in rows] == ["start", "end"]
+    src = FakeSource(o=[order()])
+    assert order_detail(conn, src, "100001")["bunnos"][0]["place"] == "包装（終了）"
+
+
+def test_unknown_process_is_stored_without_failing(conn):
+    s = Scanner(conn)
+    assert s(CARD_A, process="nowhere").outcome == "unknown_process"
+    assert s(CARD_A, process="packing", phase="point").outcome == "unknown_process"
+    assert conn.execute("SELECT COUNT(*) FROM reads").fetchone()[0] == 2
+
+
+def test_process_can_be_added_by_config_only(conn, tmp_path, monkeypatch):
+    path = tmp_path / "flow.json"
+    path.write_text(
+        '''{"checkpoint": "paint", "processes": [
+            {"code": "press", "name": "プレス", "action": "bind", "phases": ["point"]},
+            {"code": "paint", "name": "塗装", "action": "record", "phases": ["point"]}]}''',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("FLOW_FILE", str(path))
+    flow.cache_clear()
+    try:
+        s = Scanner(conn)
+        s.bind()
+        at = T0 + timedelta(hours=1)
+        assert s(CARD_A, at, process="paint").message == "塗装に入りました"
+        assert len(in_inspection(conn, FakeSource(o=[order()]), TODAY)) == 1
+        assert s(CARD_A, at, process="elevator").outcome == "unknown_process"
+    finally:
+        monkeypatch.delenv("FLOW_FILE")
+        flow.cache_clear()
 
 
 def arrive(s, no="100001", card=CARD_A, days_ago=0):
     at = T0 - timedelta(days=days_ago)
-    s(no, at)
-    s(card, at + timedelta(seconds=1))
-    s(card, at + timedelta(hours=1))
+    s.bind(no, card, at)
+    s.elevator(card, at + timedelta(minutes=10))
+    s.inspection(card, at + timedelta(hours=1))
 
 
 def kinds(found):
@@ -245,17 +316,43 @@ def test_shipment_closes_binding_and_frees_card(conn):
     src = FakeSource(o=[order()], s=[Shipment(TODAY, "100001", 1, 100, "完")])
     assert close_shipped(conn, src.s) == 1
     assert in_inspection(conn, src, TODAY) == []
-    assert s(CARD_A, T0 + timedelta(hours=9)).outcome == "unbound"
+    assert s.inspection(CARD_A, T0 + timedelta(hours=9)).outcome == "unbound"
 
 
 def test_order_detail_places(conn):
     s = Scanner(conn)
     arrive(s, "100001", CARD_A)
-    s("100001", T0 + timedelta(hours=2))
-    s(CARD_B, T0 + timedelta(hours=2, seconds=1))
+    s.bind("100001", CARD_B, T0 + timedelta(hours=2))
+    s.elevator(CARD_B, T0 + timedelta(hours=3))
+    s.bind("100001", CARD_C, T0 + timedelta(hours=4))
     src = FakeSource(o=[order()], s=[Shipment(TODAY, "100001", 3, 10, "分")])
     places = {b["bunno"]: b["place"] for b in order_detail(conn, src, "100001")["bunnos"]}
-    assert places == {1: "検査場", 2: "検査待ち", 3: "出荷済み"}
+    assert places == {1: "検査場", 2: "エレベーター前", 3: "出荷済み", None: "プレス"}
+
+
+def test_quantity_stays_undecided_until_daily_report(conn):
+    s = Scanner(conn)
+    arrive(s)
+    src = FakeSource(o=[order()])
+    assert in_inspection(conn, src, TODAY)[0]["qty"] is None
+    assert order_detail(conn, src, "100001")["bunnos"][0]["produced"] is None
+    src.l.append(Lot("100001", 1, 80))
+    assert in_inspection(conn, src, TODAY)[0]["qty"] == 80
+    assert order_detail(conn, src, "100001")["bunnos"][0]["produced"] == 80
+
+
+def test_inspection_without_elevator_is_recorded_without_number(conn):
+    s = Scanner(conn)
+    s.bind()
+    r = s.inspection(at=T0 + timedelta(hours=1))
+    assert (r.outcome, r.bunno) == ("recorded", None)
+    assert in_inspection(conn, FakeSource(o=[order()]), TODAY)[0]["bunno"] is None
+
+
+def test_anomaly_is_a_japanese_sentence(conn):
+    arrive(Scanner(conn), days_ago=5)
+    found = detect(conn, FakeSource(o=[order()]), TODAY)
+    assert found[0].title == "注文100001の分納1が、検査場で読まれてから5日経っていますが、出荷データに載っていません。"
 
 
 class FakeClient:
@@ -317,7 +414,7 @@ def test_days_use_local_date_for_utc_timestamps(conn, monkeypatch):
     s = Scanner(conn)
     # 日本時間 11/2 07:00 はブラウザの UTC 表記だと 11/1
     at = datetime(2026, 11, 1, 22, 0, tzinfo=timezone.utc)
-    s("100001", at)
-    s(CARD_A, at)
-    s(CARD_A, at + timedelta(minutes=5))
+    s.bind(at=at)
+    s.elevator(at=at)
+    s.inspection(at=at + timedelta(minutes=5))
     assert in_inspection(conn, FakeSource(o=[order()]), TODAY)[0]["days"] == 0
