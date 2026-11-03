@@ -6,4 +6,6 @@ __pycache__/
 .env
 firmware/.pio/
 *.bin
-firmware/include/wifi_secrets.h
+# Wi-Fi のパスワード。同期で増える写し（「wifi_secrets 2.h」など）も入れない
+firmware/include/wifi_secrets*.h
+!firmware/include/wifi_secrets.example.h
