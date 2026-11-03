@@ -1,14 +1,14 @@
 import os
 import sqlite3
 from collections.abc import Iterator
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import AwareDatetime, BaseModel
+from pydantic import AwareDatetime, BaseModel, Field
 
 from .auto_triage import AutoTriage
 from .db import connect
@@ -49,9 +49,16 @@ class ScanIn(BaseModel):
     event_id: str
     raw: str
     device_id: str
-    read_at: AwareDatetime
+    # 時計を持たない読み取り機は、読んでから送るまでの経過時間を送る
+    read_at: AwareDatetime | None = None
+    age_ms: int | None = Field(default=None, ge=0)
     process: str
     phase: str = POINT
+
+    def read_time(self) -> datetime:
+        if self.read_at:
+            return self.read_at
+        return datetime.now().astimezone() - timedelta(milliseconds=self.age_ms or 0)
 
 
 @app.post("/api/scan")
@@ -61,7 +68,7 @@ def scan(body: ScanIn, conn: Conn):
         event_id=body.event_id,
         raw=body.raw,
         device_id=body.device_id,
-        read_at=body.read_at,
+        read_at=body.read_time(),
         process=body.process,
         phase=body.phase,
     )

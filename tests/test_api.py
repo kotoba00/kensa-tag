@@ -46,6 +46,17 @@ def test_scan_then_order_detail(client):
     assert places[0]["place"] == "検査場"
 
 
+def test_reader_without_clock_sends_age(client):
+    send = lambda e, raw, age: client.post(  # noqa: E731
+        "/api/scan",
+        json={"event_id": e, "raw": raw, "device_id": "atom", "age_ms": age, "process": "press"},
+    ).json()
+    assert send("x1", "200002", 5000)["outcome"] == "order_set"
+    assert send("x2", "04EEEEEEEEEEEE", 0)["outcome"] == "bound"
+    # 送り直しは同じ event_id で来る。経過時間が変わっても1回だけ記録する
+    assert send("x2", "04EEEEEEEEEEEE", 9000)["replayed"] is True
+
+
 def test_flow_lists_processes(client):
     body = client.get("/api/flow").json()
     assert body["checkpoint_name"] == "検査場"

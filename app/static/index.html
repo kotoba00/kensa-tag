@@ -127,7 +127,7 @@ let memQueue = [];
 function loadQueue() { try { return JSON.parse(localStorage.getItem(QKEY) || "[]"); } catch { return memQueue; } }
 function saveQueue(q) { memQueue = q; try { localStorage.setItem(QKEY, JSON.stringify(q)); } catch {} }
 
-const TONES = { recorded:"ok", bound:"ok", assigned:"ok", order_set:"wait", already_recorded:"warn", already_bound:"warn", already_assigned:"ok", debounced:"warn", unbound:"bad", unknown:"bad", no_order:"bad", wrong_process:"bad", unknown_process:"bad" };
+const TONES = { recorded:"ok", bound:"ok", assigned:"ok", order_set:"wait", already_recorded:"warn", already_bound:"warn", in_use:"warn", already_assigned:"ok", debounced:"warn", unbound:"bad", unknown:"bad", no_order:"bad", wrong_process:"bad", unknown_process:"bad" };
 function show(r) {
   const el = $("result");
   el.dataset.tone = TONES[r.outcome] || "";
@@ -199,7 +199,7 @@ const HINT = {
   bind: "記録票の QR を読んで、カードをかざす",
   assign: "カードをかざすと、分納番号を出す",
   record: "カードをかざす",
-  lookup: "かざすと、何の製品かを出す。記録はしない",
+  lookup: "記録票の QR を読むと、分納ごとの場所を出す。記録はしない",
 };
 // 工程ではないので flow.json には置かない
 const LOOKUP = { code: "lookup", name: "調べる", action: "lookup", phases: ["point"] };

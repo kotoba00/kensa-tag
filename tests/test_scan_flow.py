@@ -179,14 +179,36 @@ def test_read_twice_debounces_and_no_new_number(conn):
     assert conn.execute("SELECT COUNT(*) FROM bindings").fetchone()[0] == 1
 
 
-def test_rebind_closes_previous_and_clears_number(conn):
+def test_rebind_warns_then_closes_previous_on_second_tap(conn):
     s = Scanner(conn)
     s.bind()
     s.elevator()
-    r = s.bind("100002", at=T0 + timedelta(seconds=10))
-    assert (r.order_no, r.bunno) == ("100002", None)
+    at = T0 + timedelta(seconds=10)
+    warn = s.bind("100002", at=at)
+    # 使用中の注文と分納を知らせ、まだ付け替えない
+    assert (warn.outcome, warn.order_no, warn.bunno) == ("in_use", "100001", 1)
+    assert conn.execute("SELECT COUNT(*) FROM bindings WHERE ended_at IS NULL AND order_no='100001'").fetchone()[0] == 1
+    # 置き直してもう一度かざすと付け替える。QR は読み直さなくてよい
+    r = s(CARD_A, at + timedelta(seconds=6))
+    assert (r.outcome, r.order_no, r.bunno) == ("bound", "100002", None)
     row = conn.execute("SELECT end_reason FROM bindings WHERE order_no='100001'").fetchone()
     assert row["end_reason"] == "rebound"
+
+
+def test_rebind_double_read_is_not_a_confirmation(conn):
+    s = Scanner(conn)
+    s.bind()
+    at = T0 + timedelta(seconds=10)
+    assert s.bind("100002", at=at).outcome == "in_use"
+    assert s(CARD_A, at + timedelta(seconds=2)).outcome == "in_use"
+
+
+def test_rebind_warning_expires(conn):
+    s = Scanner(conn)
+    s.bind()
+    at = T0 + timedelta(seconds=10)
+    assert s.bind("100002", at=at).outcome == "in_use"
+    assert s(CARD_A, at + timedelta(minutes=5)).outcome != "bound"
 
 
 def test_expired_order_does_not_bind(conn):
