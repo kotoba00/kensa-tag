@@ -76,6 +76,7 @@ def order(no="100001", qty=100, due=None, done=False, stock=False):
         ("9900002", "order"),
         ("04a1b2c3d4e5f6", "ntag"),
         ("０４A1B2C3D4E5F6", "ntag"),  # 日本語入力オンの全角
+        ("04A1B 2C3D4E5F6", "ntag"),  # 実機の読み取りで途中に空白が入った
         ("1234567890", "hf"),
         ("1234abcd", "hf"),
         ("12345678", "hf"),

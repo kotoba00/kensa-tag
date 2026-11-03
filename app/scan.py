@@ -17,8 +17,8 @@ _RULES: list[tuple[Kind, re.Pattern[str]]] = [
 
 
 def normalize(raw: str) -> str:
-    """日本語入力がオンのときの全角を半角へ直し、前後の空白を落とす。"""
-    return unicodedata.normalize("NFKC", raw).strip().upper()
+    """日本語入力がオンのときの全角を半角へ直し、空白を落とす。UID の途中に空白が入ることがある。"""
+    return re.sub(r"\s+", "", unicodedata.normalize("NFKC", raw)).upper()
 
 
 def classify(raw: str) -> tuple[Kind, str]:

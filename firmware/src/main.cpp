@@ -1,4 +1,4 @@
-// カードをかざすと UID を16進で打ち込み、最後に Enter を送る。
+// カードをかざすと UID を16進で、画面のボタンを押して QR を読むと中身を打ち込み、最後に Enter を送る。
 // 読み取りの判断はすべて画面側に任せ、この機器は覚えない。
 
 #include <M5Unified.h>
@@ -14,6 +14,14 @@ constexpr uint8_t kRfidAddress = 0x28;
 constexpr uint32_t kSameCardQuietMs = 1500;
 constexpr uint32_t kResultShowMs = 1500;
 constexpr uint32_t kRfidRetryMs = 2000;
+constexpr int kQrRxPin = 5;
+constexpr int kQrTxPin = 6;
+constexpr int kQrTrigPin = 7;
+constexpr uint32_t kQrBaud = 115200;
+constexpr uint32_t kQrTrigPulseMs = 20;
+constexpr uint32_t kQrRetriggerMs = 700;
+constexpr uint32_t kQrQuietMs = 50;  // QR の出力に行末が無いので、途切れたら1件とする
+constexpr size_t kQrMaxLength = 64;
 
 MFRC522DriverI2C driver{kRfidAddress, Wire};
 MFRC522 rfid{driver};
@@ -25,6 +33,11 @@ uint32_t resultAt = 0;
 uint32_t lastRetryAt = 0;
 bool rfidFound = false;
 bool showingResult = false;
+String qrBuffer;
+uint32_t qrLastByteAt = 0;
+uint32_t qrLastTrigAt = 0;
+bool qrScanning = false;
+bool qrSent = false;
 
 void show(uint16_t background, const char* big, const String& small = "") {
   M5.Display.fillScreen(background);
@@ -36,6 +49,14 @@ void show(uint16_t background, const char* big, const String& small = "") {
   M5.Display.drawString(small, M5.Display.width() / 2, M5.Display.height() / 2 + 22);
 }
 
+void showIdle() {
+  if (rfidFound) {
+    show(TFT_DARKGREEN, "かざす", "ready");
+  } else {
+    show(TFT_RED, "接続なし", "Unit RFID2");
+  }
+}
+
 bool probeRfid() {
   Wire.beginTransmission(kRfidAddress);
   return Wire.endTransmission() == 0;
@@ -45,10 +66,44 @@ void connectRfid() {
   rfidFound = probeRfid();
   if (rfidFound) {
     rfid.PCD_Init();
-    show(TFT_DARKGREEN, "かざす", "ready");
-  } else {
-    show(TFT_RED, "接続なし", "Unit RFID2");
   }
+  showIdle();
+}
+
+void showRead(const String& text, uint32_t now) {
+  show(TFT_BLUE, "読んだ", text.substring(text.length() > 6 ? text.length() - 6 : 0));
+  showingResult = true;
+  resultAt = now;
+}
+
+void pollQr(uint32_t now) {
+  // ボタンを押している間は読めるまで出し直す。読めたら離すまで次を出さない
+  bool held = M5.BtnA.isPressed();
+  if (held && !qrSent && (!qrScanning || now - qrLastTrigAt > kQrRetriggerMs)) {
+    if (!qrScanning) show(TFT_NAVY, "QR", "読み取り中");
+    qrScanning = true;
+    qrLastTrigAt = now;
+    digitalWrite(kQrTrigPin, LOW);
+    delay(kQrTrigPulseMs);
+    digitalWrite(kQrTrigPin, HIGH);
+  }
+  if (!held) {
+    if (qrScanning && !qrSent) showIdle();
+    qrScanning = false;
+    qrSent = false;
+  }
+
+  while (Serial1.available()) {
+    int c = Serial1.read();
+    if (c > 0x20 && c < 0x7F && qrBuffer.length() < kQrMaxLength) qrBuffer += static_cast<char>(c);
+    qrLastByteAt = now;
+  }
+  if (qrBuffer.isEmpty() || now - qrLastByteAt < kQrQuietMs) return;
+  keyboard.print(qrBuffer);
+  keyboard.write(KEY_RETURN);
+  showRead(qrBuffer, now);
+  qrBuffer = "";
+  qrSent = true;
 }
 
 String uidHex() {
@@ -72,6 +127,10 @@ void setup() {
   keyboard.begin();
   USB.begin();
 
+  pinMode(kQrTrigPin, OUTPUT);
+  digitalWrite(kQrTrigPin, HIGH);
+  Serial1.begin(kQrBaud, SERIAL_8N1, kQrRxPin, kQrTxPin);
+
   Wire.begin(M5.getPin(m5::ex_i2c_sda), M5.getPin(m5::ex_i2c_scl), 100000);
   connectRfid();
 }
@@ -79,6 +138,8 @@ void setup() {
 void loop() {
   M5.update();
   uint32_t now = millis();
+
+  pollQr(now);
 
   if (!rfidFound) {
     if (now - lastRetryAt > kRfidRetryMs) {
@@ -91,7 +152,7 @@ void loop() {
 
   if (showingResult && now - resultAt > kResultShowMs) {
     showingResult = false;
-    show(TFT_DARKGREEN, "かざす", "ready");
+    if (!qrScanning) showIdle();
   }
 
   if (!rfid.PICC_IsNewCardPresent() || !rfid.PICC_ReadCardSerial()) {
@@ -111,7 +172,5 @@ void loop() {
   keyboard.print(uid);
   keyboard.write(KEY_RETURN);
 
-  show(TFT_BLUE, "読んだ", uid.substring(uid.length() - 6));
-  showingResult = true;
-  resultAt = now;
+  showRead(uid, now);
 }

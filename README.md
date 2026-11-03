@@ -32,10 +32,10 @@ uv run python demo/seed.py
 ```
 
 ```bash
-uv run uvicorn app.main:app --port 18300
+uv run uvicorn app.main:app --port 18300 --env-file ~/.kensa-tag.env
 ```
 
-`http://localhost:18300` を開きます。Claude に見てもらうには `ANTHROPIC_API_KEY` を設定します。キーが無くても、読み取りと検出は動きます。
+`http://localhost:18300` を開きます。Claude に見てもらうには、リポジトリの外の `~/.kensa-tag.env` に `ANTHROPIC_API_KEY=...` を書きます。キーが無くても、読み取りと検出は動きます。
 
 ```bash
 uv run pytest
@@ -43,7 +43,7 @@ uv run pytest
 
 ## 読み取り機
 
-`firmware/` は AtomS3R ＋ Unit RFID2 用です。USB キーボードとして UID と Enter を打ち込みます。
+`firmware/` は AtomS3R ＋ Unit RFID2 ＋ Atomic QRCode2 Base 用です。カードをかざすか、画面のボタンを押して QR を読むと、USB キーボードとして中身と Enter を打ち込みます。
 
 ```bash
 cd firmware && pio run -e atoms3r -t upload
