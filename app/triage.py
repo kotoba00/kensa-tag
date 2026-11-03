@@ -1,5 +1,6 @@
 """検出結果を Claude に渡し、原因の見立てと次の一手を考えてもらう。"""
 
+import hashlib
 import json
 import sqlite3
 from datetime import date, datetime
@@ -105,18 +106,24 @@ def _only_known(report: TriageReport, anomalies: list[Anomaly]) -> TriageReport:
     return report
 
 
-def save_report(conn: sqlite3.Connection, report: TriageReport) -> None:
+def signature(anomalies: list[Anomaly]) -> str:
+    """検出結果の指紋。同じなら見立てを作り直さなくてよい。"""
+    payload = sorted((a.as_dict() for a in anomalies), key=lambda a: a["id"])
+    return hashlib.sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+
+
+def save_report(conn: sqlite3.Connection, report: TriageReport, sig: str) -> None:
     with conn:
         conn.execute(
-            "INSERT INTO triage_runs (created_at, model, report_json) VALUES (?, ?, ?)",
-            (datetime.now().astimezone().isoformat(), MODEL, report.model_dump_json()),
+            "INSERT INTO triage_runs (created_at, model, report_json, signature) VALUES (?, ?, ?, ?)",
+            (datetime.now().astimezone().isoformat(), MODEL, report.model_dump_json(), sig),
         )
 
 
 def latest_report(conn: sqlite3.Connection) -> dict | None:
     row = conn.execute(
-        "SELECT created_at, report_json FROM triage_runs ORDER BY id DESC LIMIT 1"
+        "SELECT created_at, report_json, signature FROM triage_runs ORDER BY id DESC LIMIT 1"
     ).fetchone()
     if not row:
         return None
-    return {"created_at": row["created_at"], **json.loads(row["report_json"])}
+    return {"created_at": row["created_at"], "signature": row["signature"], **json.loads(row["report_json"])}

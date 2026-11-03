@@ -42,7 +42,8 @@ CREATE TABLE IF NOT EXISTS triage_runs (
     id INTEGER PRIMARY KEY,
     created_at TEXT NOT NULL,
     model TEXT NOT NULL,
-    report_json TEXT NOT NULL
+    report_json TEXT NOT NULL,
+    signature TEXT  -- 見立てを作ったときの検出結果の指紋
 );
 """
 
@@ -57,4 +58,7 @@ def connect(path: str | Path) -> sqlite3.Connection:
     if str(path) != ":memory:":
         conn.execute("PRAGMA journal_mode = WAL")
     conn.executescript(SCHEMA)
+    columns = {r["name"] for r in conn.execute("PRAGMA table_info(triage_runs)")}
+    if "signature" not in columns:
+        conn.execute("ALTER TABLE triage_runs ADD COLUMN signature TEXT")
     return conn

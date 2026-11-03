@@ -13,6 +13,7 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("DB_PATH", str(db))
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
+    monkeypatch.setenv("AUTO_TRIAGE", "0")
     seed(db, date.today())
     from app.main import app
 
@@ -55,6 +56,12 @@ def test_triage_without_key_returns_readable_error(client):
     res = client.post("/api/triage")
     assert res.status_code == 503
     assert "キー" in res.json()["detail"]
+
+
+def test_anomalies_report_triage_state(client):
+    body = client.get("/api/anomalies").json()
+    assert body["triage"] is None
+    assert body["triage_stale"] is False and body["thinking"] is False
 
 
 def test_unknown_order_is_404(client):

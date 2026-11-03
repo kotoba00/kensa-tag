@@ -419,3 +419,53 @@ def test_days_use_local_date_for_utc_timestamps(conn, monkeypatch):
     s.elevator(at=at)
     s.inspection(at=at + timedelta(minutes=5))
     assert in_inspection(conn, FakeSource(o=[order()]), TODAY)[0]["days"] == 0
+
+
+def _auto(tmp_path, src, client):
+    from app.auto_triage import AutoTriage
+
+    db = tmp_path / "auto.db"
+    return AutoTriage(lambda: connect(db), src, settle=0, client=client), db
+
+
+def _qty_report(anomaly_id="qty:2:1"):
+    item = TriageItem(anomaly_id=anomaly_id, priority="今日中", likely_cause="c",
+                      next_action="a", ask_role="検査場", group="")
+    return SimpleNamespace(stop_reason="end_turn", parsed_output=TriageReport(summary="s", items=[item]))
+
+
+def test_auto_triage_saves_report_with_signature(tmp_path):
+    from app.triage import latest_report, signature
+
+    src = FakeSource(s=[Shipment(TODAY, "2", 1, 90, "分")], l=[Lot("2", 1, 100)])
+    client = FakeClient(_qty_report())
+    auto, db = _auto(tmp_path, src, client)
+    auto.poke("now", None)
+    auto.join(5)
+    conn = connect(db)
+    saved = latest_report(conn)
+    assert saved["items"][0]["anomaly_id"] == "qty:2:1"
+    assert saved["signature"] == signature(detect(conn, src, date.today()))
+    assert not auto.thinking and auto.error is None
+
+
+def test_auto_triage_skips_when_already_current(tmp_path):
+    client = FakeClient(error=RuntimeError("呼ばれないはず"))
+    auto, _ = _auto(tmp_path, FakeSource(), client)
+    auto.poke("same", "same")
+    assert not auto.thinking and client.kwargs is None
+
+
+def test_auto_triage_does_not_retry_same_failure(tmp_path):
+    src = FakeSource(s=[Shipment(TODAY, "2", 1, 90, "分")], l=[Lot("2", 1, 100)])
+    client = FakeClient(error=anthropic.AnthropicError("no key"))
+    auto, db = _auto(tmp_path, src, client)
+    auto.poke("now", None)
+    auto.join(5)
+    assert auto.error
+    from app.triage import signature
+
+    sig = signature(detect(connect(db), src, date.today()))
+    client.kwargs = None
+    auto.poke(sig, None)
+    assert not auto.thinking and client.kwargs is None
