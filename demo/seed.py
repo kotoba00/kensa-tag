@@ -30,6 +30,8 @@ def build(today: date) -> dict[str, list[dict]]:
         ("100105", "DEMO-E50", "顧客C", 120, -3, True, False),   # 同じ日のかざし忘れ
         ("100106", "DEMO-F60", "顧客B", 500, -2, False, False),  # 生産数と計量の差
         ("100107", "DEMO-G70", "顧客A", 100, -4, True, False),   # 分納の合計が合わない
+        ("100108", "DEMO-H80", "顧客B", 250, 7, False, False),   # 実演用。まだ何も読んでいない
+        ("100109", "DEMO-J90", "顧客C", 180, 10, False, False),  # 実演用
         ("9900001", "DEMO-Z99", "自社", 0, None, False, True),   # 在庫向け。検出しない
     ]
     return {

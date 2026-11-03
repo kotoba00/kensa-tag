@@ -63,6 +63,24 @@
   "stock": false
  },
  {
+  "order_no": "100108",
+  "item_code": "DEMO-H80",
+  "customer": "顧客B",
+  "qty": 250,
+  "due_date": "2026-11-10",
+  "done": false,
+  "stock": false
+ },
+ {
+  "order_no": "100109",
+  "item_code": "DEMO-J90",
+  "customer": "顧客C",
+  "qty": 180,
+  "due_date": "2026-11-13",
+  "done": false,
+  "stock": false
+ },
+ {
   "order_no": "9900001",
   "item_code": "DEMO-Z99",
   "customer": "自社",

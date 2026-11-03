@@ -64,5 +64,24 @@ def test_anomalies_report_triage_state(client):
     assert body["triage_stale"] is False and body["thinking"] is False
 
 
+def test_tag_lookup_shows_order_and_place(client):
+    # デモの 100103 カード8 はエレベーター前を通って分納番号を持つ
+    t = client.get("/api/tags/04A1B2C3D4E508").json()
+    assert t["order_no"] == "100103" and t["bunno"] == 2
+    assert t["place"] == "エレベーター前" and t["in_use"] is True
+    # 空白入りや小文字でも同じカードとして引ける
+    assert client.get("/api/tags/04a1b 2c3d4e508").json()["bunno"] == 2
+
+
+def test_tag_lookup_errors(client):
+    assert client.get("/api/tags/04FFFFFFFFFFFF").status_code == 404
+    assert client.get("/api/tags/100101").status_code == 400
+
+
+def test_tag_page_is_served(client):
+    res = client.get("/t/04A1B2C3D4E508")
+    assert res.status_code == 200 and "/api/tags/" in res.text
+
+
 def test_unknown_order_is_404(client):
     assert client.get("/api/orders/999999").status_code == 404

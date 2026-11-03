@@ -26,6 +26,7 @@ section { background: var(--panel); border: 1px solid var(--line); border-radius
 section.full { grid-column: 1 / -1; }
 h2 { font-size: 16px; margin: 0 0 10px; }
 #stations { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+#stations .pick[data-station=lookup] { margin-left: auto; }
 #phases { display: flex; gap: 6px; margin-bottom: 10px; }
 #phases:empty { display: none; }
 .pick { font: inherit; font-size: 15px; padding: 7px 12px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); cursor: pointer; }
@@ -181,7 +182,8 @@ input.addEventListener("keydown", e => {
     $("result").innerHTML = "<b>日本語入力をオフにしてください</b><span>もう一度かざしてください</span>";
     return;
   }
-  if (v) enqueue(v);
+  if (!v) return;
+  if (station.action === "lookup") lookup(v); else enqueue(v);
 });
 // 読み取り機の文字がよそへ入らないよう、ダイアログ以外では入力欄に戻す
 document.addEventListener("click", e => {
@@ -197,11 +199,32 @@ const HINT = {
   bind: "記録票の QR を読んで、カードをかざす",
   assign: "カードをかざすと、分納番号を出す",
   record: "カードをかざす",
+  lookup: "かざすと、何の製品かを出す。記録はしない",
 };
+// 工程ではないので flow.json には置かない
+const LOOKUP = { code: "lookup", name: "調べる", action: "lookup", phases: ["point"] };
+function stations() { return [...flow.processes, LOOKUP]; }
+
+async function lookup(v) {
+  const el = $("result");
+  if (/^\d{5,7}$/.test(v)) { openOrder(v); return; }
+  const res = await fetch("/api/tags/" + encodeURIComponent(v)).catch(() => null);
+  if (!res || !res.ok) {
+    const body = res ? await res.json().catch(() => ({})) : {};
+    el.dataset.tone = "bad";
+    el.innerHTML = `<b>${esc(body.detail || "調べられませんでした")}</b><span>${esc(v)}</span>`;
+    return;
+  }
+  const t = await res.json();
+  el.dataset.tone = t.in_use ? "ok" : "warn";
+  el.innerHTML = `<b class="big">${t.bunno ? "分納 " + t.bunno : "未採番"}</b>
+    <span>注文 ${orderLink(t.order_no)} ／ ${esc(t.item_code || "")} ／ 納期 ${esc(t.due_date || "-")}</span><br>
+    <span>いま <strong>${esc(t.place)}</strong>（${esc(fmt(t.last_read_at))}）${t.in_use ? "" : " ／ このカードは使い終わっています"}</span>`;
+}
 let flow = null, station = null, phase = "point";
 function storedStation() { try { return localStorage.getItem("kensa-station"); } catch { return null; } }
 function renderStation() {
-  $("stations").innerHTML = flow.processes.map(p => `<button class="pick" data-station="${esc(p.code)}" aria-pressed="${p === station}">${esc(p.name)}</button>`).join("");
+  $("stations").innerHTML = stations().map(p => `<button class="pick" data-station="${esc(p.code)}" aria-pressed="${p === station}">${esc(p.name)}</button>`).join("");
   const twoWay = station.phases.length > 1;
   $("phases").innerHTML = twoWay ? station.phases.map(ph => `<button class="pick" data-phase="${ph}" aria-pressed="${ph === phase}">${ph === "start" ? "開始" : "終了"}</button>`).join("") : "";
   $("scan").placeholder = HINT[station.action];
@@ -216,7 +239,7 @@ function pickStation(p) {
 }
 document.addEventListener("click", e => {
   const s = e.target.closest("[data-station]");
-  if (s) { pickStation(flow.processes.find(p => p.code === s.dataset.station)); input.focus(); }
+  if (s) { pickStation(stations().find(p => p.code === s.dataset.station)); input.focus(); }
   const ph = e.target.closest("[data-phase]");
   if (ph) { phase = ph.dataset.phase; renderStation(); input.focus(); }
 });
@@ -311,7 +334,7 @@ $("triage").addEventListener("click", async () => {
 async function start() {
   flow = await (await fetch("/api/flow")).json();
   $("cpName").textContent = flow.checkpoint_name;
-  pickStation(flow.processes.find(p => p.code === storedStation()) || flow.processes[0]);
+  pickStation(stations().find(p => p.code === storedStation()) || flow.processes[0]);
   setInterval(flush, 5000);
   setInterval(refresh, 30000);
   input.focus();

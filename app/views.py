@@ -103,3 +103,33 @@ def order_detail(conn: sqlite3.Connection, source: ProductionSource, order_no: s
         "done": order.done if order else None,
         "bunnos": rows,
     }
+
+
+def tag_detail(conn: sqlite3.Connection, source: ProductionSource, uid: str) -> dict | None:
+    """カード1枚が今どの注文のどの分納か。使い終わったカードは最後の紐付けを出す。"""
+    close_shipped(conn, source.shipments())
+    rows = _rows(conn, "WHERE b.uid = ? ORDER BY b.ended_at IS NULL DESC, b.id DESC LIMIT 1", (uid,))
+    if not rows:
+        return None
+    b = rows[0]
+    order = next((o for o in source.orders() if o.order_no == b["order_no"]), None)
+    last = _last_read(conn, b["id"])
+    if b["end_reason"] == "shipped":
+        place = "出荷済み"
+    elif last:
+        place = flow().place(last["process"], last["phase"])
+    else:
+        place = "不明"
+    return {
+        "uid": uid,
+        "in_use": b["ended_at"] is None,
+        "order_no": b["order_no"],
+        "bunno": b["bunno"],
+        "place": place,
+        "bound_at": b["started_at"],
+        "last_read_at": last["read_at"] if last else None,
+        "produced": _produced(source).get((b["order_no"], b["bunno"])),
+        "item_code": order.item_code if order else None,
+        "customer": order.customer if order else None,
+        "due_date": order.due_date.isoformat() if order and order.due_date else None,
+    }

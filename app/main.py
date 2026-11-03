@@ -17,7 +17,8 @@ from .flow import flow
 from .service import POINT, handle_scan
 from .source import JsonSource
 from .triage import TriageUnavailable, latest_report, run_triage, save_report, signature
-from .views import in_inspection, order_detail
+from .scan import classify
+from .views import in_inspection, order_detail, tag_detail
 
 STATIC = Path(__file__).parent / "static"
 DEFAULT_DB = Path(__file__).parent.parent / "data" / "kensa.db"
@@ -90,6 +91,17 @@ def order(order_no: str, conn: Conn):
     return detail
 
 
+@app.get("/api/tags/{raw}")
+def tag(raw: str, conn: Conn):
+    kind, uid = classify(raw)
+    if kind not in ("ntag", "uhf", "hf"):
+        raise HTTPException(400, "カードの番号ではありません")
+    detail = tag_detail(conn, source, uid)
+    if detail is None:
+        raise HTTPException(404, "このカードはまだ注文と紐付いていません")
+    return detail
+
+
 @app.get("/api/anomalies")
 def anomalies(conn: Conn):
     found = detect(conn, source, date.today())
@@ -124,6 +136,12 @@ def triage(conn: Conn):
 @app.get("/")
 def index():
     return FileResponse(STATIC / "index.html")
+
+
+@app.get("/t/{uid}")
+def tag_page(uid: str):
+    # カードに書いた URL をスマホで開いたときの画面。中身は /api/tags から読む
+    return FileResponse(STATIC / "tag.html")
 
 
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
