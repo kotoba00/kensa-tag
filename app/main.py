@@ -18,7 +18,7 @@ from .service import POINT, handle_scan
 from .source import JsonSource
 from .triage import TriageUnavailable, latest_report, run_triage, save_report, signature
 from .scan import classify
-from .views import in_inspection, order_detail, tag_detail
+from .views import board, in_inspection, order_detail, tag_detail
 
 STATIC = Path(__file__).parent / "static"
 DEFAULT_DB = Path(__file__).parent.parent / "data" / "kensa.db"
@@ -82,6 +82,7 @@ def get_flow():
         "checkpoint": f.checkpoint,
         "checkpoint_name": f.checkpoint_name,
         "processes": [p.__dict__ for p in f.processes],
+        "map": f.map,
     }
 
 
@@ -96,6 +97,16 @@ def order(order_no: str, conn: Conn):
     if detail is None:
         raise HTTPException(404, "その注文番号は見つかりません")
     return detail
+
+
+@app.get("/api/board")
+def get_board(conn: Conn):
+    today = date.today()
+    found = detect(conn, source, today)
+    return {
+        "items": board(conn, source, today, found, latest_report(conn)),
+        "generated_at": datetime.now().astimezone().isoformat(),
+    }
 
 
 @app.get("/api/tags/{raw}")
@@ -143,6 +154,12 @@ def triage(conn: Conn):
 @app.get("/")
 def index():
     return FileResponse(STATIC / "index.html")
+
+
+@app.get("/board")
+def board_page():
+    # 工場図。大きな画面に出しっぱなしにする
+    return FileResponse(STATIC / "board.html")
 
 
 @app.get("/t/{uid}")

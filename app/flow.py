@@ -6,6 +6,7 @@ action の意味:
   record 読んだことを記録する
 phases は point（1回読むだけ）か start と end（開始と終了）。
 checkpoint は「いま何があるか」を見張る工程で、Claude に渡す検出の基準になる。
+zone と map は工場図の画面で使う。zone は [左, 上, 幅, 高さ]、map の大きさの中で決める。
 """
 
 import json
@@ -25,12 +26,14 @@ class Process:
     name: str
     action: Literal["bind", "assign", "record"]
     phases: tuple[str, ...]
+    zone: tuple[int, int, int, int] | None = None
 
 
 @dataclass(frozen=True)
 class Flow:
     processes: tuple[Process, ...]
     checkpoint: str
+    map: dict | None = None
 
     def get(self, code: str) -> Process | None:
         return next((p for p in self.processes if p.code == code), None)
@@ -50,7 +53,12 @@ def flow() -> Flow:
     raw = json.loads(Path(os.environ.get("FLOW_FILE") or DEFAULT_FILE).read_text(encoding="utf-8"))
     return Flow(
         processes=tuple(
-            Process(p["code"], p["name"], p["action"], tuple(p["phases"])) for p in raw["processes"]
+            Process(
+                p["code"], p["name"], p["action"], tuple(p["phases"]),
+                tuple(p["zone"]) if p.get("zone") else None,
+            )
+            for p in raw["processes"]
         ),
         checkpoint=raw["checkpoint"],
+        map=raw.get("map"),
     )

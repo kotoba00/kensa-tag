@@ -133,3 +133,48 @@ def tag_detail(conn: sqlite3.Connection, source: ProductionSource, uid: str) -> 
         "customer": order.customer if order else None,
         "due_date": order.due_date.isoformat() if order and order.due_date else None,
     }
+
+
+def board(conn: sqlite3.Connection, source: ProductionSource, today: date, anomalies: list, triage: dict | None) -> list[dict]:
+    """工場図に置く分納。使用中のカード1枚につき1つ、最後に読んだ工程に置く。"""
+    orders = {o.order_no: o for o in source.orders()}
+    produced = _produced(source)
+    priority = {i["anomaly_id"]: i for i in (triage or {}).get("items", [])}
+    # 同じ注文と分納に付いた検出と、Claude の見立て
+    found: dict[tuple[str, int | None], list[dict]] = {}
+    for a in anomalies:
+        ai = priority.get(a.id, {})
+        found.setdefault((a.order_no, a.bunno), []).append(
+            {"kind": a.kind, "title": a.title, "priority": ai.get("priority"),
+             "likely_cause": ai.get("likely_cause"), "next_action": ai.get("next_action"), "ask_role": ai.get("ask_role")}
+        )
+    out = []
+    for b in _rows(conn, "WHERE b.ended_at IS NULL"):
+        last = _last_read(conn, b["id"])
+        order = orders.get(b["order_no"])
+        notes = found.get((b["order_no"], b["bunno"]), [])
+        if any(n["priority"] == "今日中" for n in notes):
+            level = "urgent"
+        elif notes:
+            level = "warn"
+        else:
+            level = "ok"
+        read_at = last["read_at"] if last else b["started_at"]
+        out.append(
+            {
+                "id": b["id"],
+                "order_no": b["order_no"],
+                "bunno": b["bunno"],
+                "process": last["process"] if last else None,
+                "phase": last["phase"] if last else None,
+                "place": flow().place(last["process"], last["phase"]) if last else "不明",
+                "last_read_at": read_at,
+                "days": (today - datetime.fromisoformat(read_at).astimezone().date()).days,
+                "item_code": order.item_code if order else None,
+                "due_date": order.due_date.isoformat() if order and order.due_date else None,
+                "qty": produced.get((b["order_no"], b["bunno"])),
+                "level": level,
+                "notes": notes,
+            }
+        )
+    return out

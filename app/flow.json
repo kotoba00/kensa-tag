@@ -1,11 +1,35 @@
 {
   "checkpoint": "inspection",
   "processes": [
-    {"code": "press", "name": "プレス", "action": "bind", "phases": ["point"]},
-    {"code": "elevator", "name": "エレベーター前", "action": "assign", "phases": ["point"]},
-    {"code": "homework", "name": "内職検査", "action": "record", "phases": ["start", "end"]},
-    {"code": "inspection", "name": "検査場", "action": "record", "phases": ["point"]},
-    {"code": "final_check", "name": "出荷検査", "action": "record", "phases": ["start", "end"]},
-    {"code": "packing", "name": "包装", "action": "record", "phases": ["start", "end"]}
-  ]
+    {"code": "press", "name": "プレス", "action": "bind", "phases": ["point"], "zone": [40, 65, 614, 113]},
+    {"code": "elevator", "name": "エレベーター前", "action": "assign", "phases": ["point"], "zone": [134, 530, 180, 103]},
+    {"code": "homework", "name": "内職検査", "action": "record", "phases": ["start", "end"], "zone": [1390, 60, 170, 260]},
+    {"code": "inspection", "name": "検査場", "action": "record", "phases": ["point"], "zone": [891, 288, 158, 178]},
+    {"code": "final_check", "name": "出荷検査", "action": "record", "phases": ["start", "end"], "zone": [886, 62, 163, 226]},
+    {"code": "packing", "name": "包装", "action": "record", "phases": ["start", "end"], "zone": [740, 62, 146, 226]}
+  ],
+  "map": {
+    "width": 1595, "height": 683,
+    "areas": [
+      {"name": "1階", "rect": [20, 20, 659, 631]},
+      {"name": "2階", "rect": [720, 20, 635, 643]},
+      {"name": "外（内職さん）", "rect": [1375, 20, 200, 320]}
+    ],
+    "rooms": [
+      {"name": "プレスD", "rect": [129, 449, 182, 82]},
+      {"name": "プレスE", "rect": [395, 389, 163, 113]},
+      {"name": "プレスC", "rect": [398, 502, 173, 122]},
+      {"name": "裁断7", "rect": [59, 218, 154, 94]},
+      {"name": "裁断3", "rect": [213, 218, 158, 91]},
+      {"name": "裁断5", "rect": [59, 312, 154, 89]},
+      {"name": "裁断1", "rect": [213, 310, 158, 91]},
+      {"name": "事務所（仕上前）", "rect": [1050, 62, 283, 290]},
+      {"name": "出荷", "rect": [740, 288, 151, 178]},
+      {"name": "二次加硫3", "rect": [1172, 353, 161, 113]},
+      {"name": "二次加硫1", "rect": [752, 466, 137, 173]},
+      {"name": "二次加硫2", "rect": [889, 466, 156, 173]},
+      {"name": "エレベーター", "rect": [1045, 466, 132, 166]},
+      {"name": "プレスH", "rect": [1177, 466, 158, 166]}
+    ]
+  }
 }

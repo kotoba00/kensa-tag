@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>工場の今</title>
+<style>
+:root {
+  --bg: #f4f5f2; --panel: #fff; --ink: #1d2320; --muted: #667069; --line: #d8dcd5;
+  --floor: #eef0ea; --zone: #ffffff; --zone-line: #b9c0b6;
+  --ok: #1f8a6d; --warn: #c27a00; --urgent: #c4321f; --accent: #116a57;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #151816; --panel: #1f2421; --ink: #eef1ec; --muted: #a2aba4; --line: #39413b;
+    --floor: #1b1f1c; --zone: #232925; --zone-line: #4a534c;
+    --ok: #4cc19f; --warn: #e7a94b; --urgent: #f2786a; --accent: #58c4a8; }
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); display: flex; flex-direction: column;
+  font: 16px/1.5 "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif; }
+header { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; padding: 12px 16px;
+  background: var(--panel); border-bottom: 1px solid var(--line); }
+h1 { margin: 0; font-size: 20px; }
+#clock { font-variant-numeric: tabular-nums; color: var(--muted); }
+.legend { display: flex; gap: 14px; margin-left: auto; font-size: 14px; color: var(--muted); flex-wrap: wrap; }
+.legend span::before { content: ""; display: inline-block; width: 11px; height: 11px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; background: var(--c); }
+header a { color: var(--accent); font-size: 14px; }
+main { flex: 1; display: flex; min-height: 0; }
+#mapwrap { flex: 1; min-width: 0; padding: 12px; display: flex; align-items: center; justify-content: center; }
+svg { width: 100%; height: 100%; max-height: calc(100vh - 80px); }
+.area rect { fill: var(--floor); stroke: var(--line); stroke-width: 2; }
+.area text { fill: var(--muted); font-size: 18px; font-weight: 600; }
+.room rect { fill: none; stroke: var(--zone-line); stroke-width: 1; stroke-dasharray: 4 3; }
+.room text { fill: var(--muted); font-size: 13px; }
+.zone rect { fill: var(--zone); stroke: var(--zone-line); stroke-width: 1.5; }
+.zone.hot rect { stroke: var(--accent); stroke-width: 3; }
+.zone .name { fill: var(--ink); font-size: 15px; font-weight: 700; }
+.zone .count { fill: var(--muted); font-size: 13px; }
+.dot { cursor: pointer; transition: transform 1.2s cubic-bezier(.4, 0, .2, 1), opacity .6s; }
+.dot circle.body { stroke: var(--panel); stroke-width: 2; }
+.dot.ok circle.body { fill: var(--ok); }
+.dot.warn circle.body { fill: var(--warn); }
+.dot.urgent circle.body { fill: var(--urgent); }
+.dot text { fill: var(--ink); font-size: 15px; font-variant-numeric: tabular-nums; text-anchor: middle; }
+.dot text.num { fill: #fff; font-size: 17px; font-weight: 700; dominant-baseline: central; }
+.dot.small text { font-size: 11px; }
+.dot.small text.num { font-size: 13px; }
+.dot.gone { opacity: 0; }
+.dot.selected circle.body { stroke: var(--ink); stroke-width: 3; }
+.ring { fill: none; stroke: var(--accent); stroke-width: 3; opacity: 0; }
+.dot.moved .ring { animation: pulse 1.6s ease-out 1.1s 2; }
+@keyframes pulse { from { opacity: .9; stroke-width: 3; } to { opacity: 0; stroke-width: 24; } }
+.more { fill: var(--muted); font-size: 14px; }
+#side { width: 340px; flex: none; background: var(--panel); border-left: 1px solid var(--line); padding: 16px; overflow-y: auto; }
+#side h2 { margin: 0 0 4px; font-size: 22px; }
+#side .place { font-size: 18px; font-weight: 700; color: var(--accent); margin: 6px 0 10px; }
+#side dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; margin: 0 0 12px; }
+#side dt { color: var(--muted); font-size: 14px; }
+#side dd { margin: 0; }
+.note { border-left: 4px solid var(--warn); padding: 6px 10px; margin: 8px 0; background: var(--bg); border-radius: 0 6px 6px 0; }
+.note.urgent { border-color: var(--urgent); }
+.note b { display: block; }
+.note small { color: var(--muted); display: block; margin-top: 4px; }
+.empty { color: var(--muted); }
+#err { color: var(--urgent); font-size: 14px; }
+@media (max-width: 860px) {
+  main { flex-direction: column; }
+  #side { width: auto; border-left: 0; border-top: 1px solid var(--line); }
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>工場の今</h1>
+  <span id="clock"></span>
+  <span id="err" role="status"></span>
+  <div class="legend">
+    <span style="--c: var(--ok)">順調</span>
+    <span style="--c: var(--warn)">確認が要る</span>
+    <span style="--c: var(--urgent)">今日中に対応</span>
+    <a href="/">読み取りの画面へ</a>
+  </div>
+</header>
+<main>
+  <div id="mapwrap"><svg id="map" role="img" aria-label="工場の図。点は分納1つ"></svg></div>
+  <aside id="side" aria-live="polite"><p class="empty">点を押すと、その分納の詳しいことと Claude の見立てを出します。</p></aside>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const NS = "http://www.w3.org/2000/svg";
+const TOP = 30;
+// 区画が狭いときや数が多いときは、点を小さくして詰める。いちばん小さいときは注文番号を省く
+const SIZES = [
+  { cw: 92, ch: 64, r: 18, lbl: true, cls: "" },
+  { cw: 66, ch: 50, r: 13, lbl: true, cls: "small" },
+  { cw: 32, ch: 32, r: 12, lbl: false, cls: "small" },
+];
+let flow, zones = {}, items = [], selected = null;
+const dots = new Map();  // 紐付けの id → { g, process, readAt }
+
+function el(tag, attrs = {}, parent) {
+  const e = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  if (parent) parent.appendChild(e);
+  return e;
+}
+function fmt(iso) {
+  if (!iso) return "-";
+  const d = new Date(iso);
+  return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
+}
+const label = i => `${i.order_no}-${i.bunno ?? "未"}`;
+
+function drawMap() {
+  const svg = $("map");
+  svg.setAttribute("viewBox", `0 0 ${flow.map.width} ${flow.map.height}`);
+  for (const a of flow.map.areas) {
+    const g = el("g", { class: "area" }, svg);
+    const [x, y, w, h] = a.rect;
+    el("rect", { x, y, width: w, height: h, rx: 10 }, g);
+    el("text", { x: x + 12, y: y + 24 }, g).textContent = a.name;
+  }
+  // 工程ではない設備。場所の目印に薄く描く
+  for (const r of flow.map.rooms || []) {
+    const g = el("g", { class: "room" }, svg);
+    const [x, y, w, h] = r.rect;
+    el("rect", { x, y, width: w, height: h, rx: 4 }, g);
+    el("text", { x: x + 6, y: y + 16 }, g).textContent = r.name;
+  }
+  flow.processes.forEach((p, n) => {
+    if (!p.zone) return;
+    const [x, y, w, h] = p.zone;
+    const g = el("g", { class: "zone", "data-code": p.code }, svg);
+    el("rect", { x, y, width: w, height: h, rx: 6 }, g);
+    el("text", { class: "name", x: x + 8, y: y + 20 }, g).textContent = `${"①②③④⑤⑥⑦⑧⑨"[n] || ""} ${p.name}`;
+    zones[p.code] = { x, y, w, h, g, count: el("text", { class: "count", x: x + w - 8, y: y + 20, "text-anchor": "end" }, g),
+                      more: el("text", { class: "more", x: x + w - 8, y: y + h - 6, "text-anchor": "end" }, g) };
+  });
+  // 点は区画より手前に描く
+  el("g", { id: "dots" }, svg);
+}
+
+function layout(zone, n) {
+  for (const size of SIZES) {
+    const cols = Math.max(1, Math.floor((zone.w - 8) / size.cw));
+    const rows = Math.floor((zone.h - TOP - 4) / size.ch);
+    const fit = { ...size, cols, cap: cols * Math.max(rows, 1) };
+    if ((rows > 0 && fit.cap >= n) || size === SIZES[SIZES.length - 1]) return fit;
+  }
+}
+
+function slot(zone, fit, k) {
+  if (k >= fit.cap) return null;
+  const left = zone.x + (zone.w - fit.cols * fit.cw) / 2;
+  return [left + fit.cw / 2 + (k % fit.cols) * fit.cw, zone.y + TOP + fit.r + 2 + Math.floor(k / fit.cols) * fit.ch];
+}
+
+function render() {
+  const layer = $("dots");
+  const byZone = {};
+  for (const i of items) (byZone[i.process] ||= []).push(i);
+  const seen = new Set();
+  for (const [code, z] of Object.entries(zones)) {
+    const list = (byZone[code] || []).sort((a, b) => a.order_no.localeCompare(b.order_no) || (a.bunno ?? 99) - (b.bunno ?? 99));
+    z.count.textContent = list.length ? `${list.length} 件` : "";
+    const fit = layout(z, list.length);
+    let hidden = 0;
+    list.forEach((i, k) => {
+      const pos = slot(z, fit, k);
+      if (!pos) { hidden++; return; }
+      seen.add(i.id);
+      let d = dots.get(i.id);
+      if (!d) {
+        const g = el("g", { class: "dot", tabindex: 0, role: "button" }, layer);
+        el("circle", { class: "ring", r: 18 }, g);
+        el("circle", { class: "body", r: 18 }, g);
+        el("text", { class: "num", y: 0 }, g);
+        el("text", { class: "lbl", y: 36 }, g);
+        g.addEventListener("click", () => select(i.id));
+        g.addEventListener("keydown", e => { if (e.key === "Enter") select(i.id); });
+        // 現れるときは少し上から落とす
+        g.style.transform = `translate(${pos[0]}px, ${pos[1] - 20}px)`;
+        g.classList.add("gone");
+        d = { g, process: i.process, readAt: i.last_read_at };
+        dots.set(i.id, d);
+        requestAnimationFrame(() => requestAnimationFrame(() => g.classList.remove("gone")));
+      }
+      const g = d.g;
+      const moved = d.process !== i.process || d.readAt !== i.last_read_at;
+      g.setAttribute("class", `dot ${i.level} ${fit.cls}${i.id === selected ? " selected" : ""}`);
+      for (const c of g.querySelectorAll("circle")) c.setAttribute("r", fit.r);
+      g.querySelector(".lbl").setAttribute("y", fit.r + 15);
+      g.querySelector(".lbl").style.display = fit.lbl ? "" : "none";
+      if (moved) {
+        // かざされた分納は、前の区画から動かして光らせる
+        g.classList.add("moved");
+        z.g.classList.add("hot");
+        setTimeout(() => { g.classList.remove("moved"); z.g.classList.remove("hot"); }, 4500);
+      }
+      g.style.transform = `translate(${pos[0]}px, ${pos[1]}px)`;
+      g.querySelector(".num").textContent = i.bunno ?? "–";
+      g.querySelector(".lbl").textContent = label(i);
+      g.setAttribute("aria-label", `注文${i.order_no} 分納${i.bunno ?? "未採番"} ${i.place}`);
+      d.process = i.process; d.readAt = i.last_read_at;
+    });
+    z.more.textContent = hidden ? `ほか ${hidden} 件` : "";
+  }
+  for (const [id, d] of dots) {
+    if (seen.has(id)) continue;
+    d.g.classList.add("gone");
+    setTimeout(() => d.g.remove(), 700);
+    dots.delete(id);
+  }
+  if (selected !== null) showSide(items.find(i => i.id === selected));
+}
+
+function select(id) {
+  selected = id;
+  for (const [k, d] of dots) d.g.classList.toggle("selected", k === id);
+  showSide(items.find(i => i.id === id));
+}
+
+function showSide(i) {
+  if (!i) { $("side").innerHTML = '<p class="empty">この分納は出荷されたか、カードが外れました。</p>'; return; }
+  const notes = i.notes.map(n => `<div class="note ${n.priority === "今日中" ? "urgent" : ""}">
+      <b>${esc(n.priority ? n.priority + "：" : "")}${esc(n.title)}</b>
+      ${n.likely_cause ? `<small>考えられる原因：${esc(n.likely_cause)}</small>` : ""}
+      ${n.next_action ? `<small>次の一手（${esc(n.ask_role)}）：${esc(n.next_action)}</small>` : ""}
+    </div>`).join("");
+  $("side").innerHTML = `<h2>注文 ${esc(i.order_no)} ／ 分納 ${i.bunno ?? "未採番"}</h2>
+    <div class="place">いま ${esc(i.place)}</div>
+    <dl>
+      <dt>品番</dt><dd>${esc(i.item_code || "-")}</dd>
+      <dt>納期</dt><dd>${esc(i.due_date || "-")}</dd>
+      <dt>数量</dt><dd>${i.qty ?? "未定"}</dd>
+      <dt>最後に読んだ</dt><dd>${esc(fmt(i.last_read_at))}（${i.days} 日前）</dd>
+    </dl>
+    ${notes || '<p class="empty">確認が要ることはありません。</p>'}`;
+}
+
+async function refresh() {
+  try {
+    const res = await fetch("/api/board");
+    if (!res.ok) throw new Error(res.status);
+    items = (await res.json()).items.filter(i => zones[i.process]);
+    $("err").textContent = "";
+    render();
+  } catch { $("err").textContent = "サーバーにつながりません。自動で読み直します"; }
+}
+
+function tick() {
+  const d = new Date();
+  $("clock").textContent = `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}:${String(d.getSeconds()).padStart(2,"0")}`;
+}
+
+async function start() {
+  flow = await (await fetch("/api/flow")).json();
+  drawMap();
+  tick(); setInterval(tick, 1000);
+  await refresh();
+  // かざしてから点が動くまでを短くする
+  setInterval(refresh, 2000);
+}
+start();
+</script>
+</body>
+</html>

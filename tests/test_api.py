@@ -94,5 +94,22 @@ def test_tag_page_is_served(client):
     assert res.status_code == 200 and "/api/tags/" in res.text
 
 
+def test_board_places_each_card_on_its_process(client):
+    items = client.get("/api/board").json()["items"]
+    by_card = {(i["order_no"], i["bunno"]): i for i in items}
+    assert by_card[("100103", 2)]["process"] == "elevator"
+    assert by_card[("100103", None)]["process"] == "press"
+    # 滞留の検出が付いたものは色を変える
+    assert by_card[("100101", 1)]["level"] in ("warn", "urgent")
+    assert by_card[("100103", 1)]["level"] == "ok"
+    assert client.get("/board").status_code == 200
+
+
+def test_flow_has_map_zones(client):
+    body = client.get("/api/flow").json()
+    assert body["map"]["width"] > 0
+    assert all(len(p["zone"]) == 4 for p in body["processes"])
+
+
 def test_unknown_order_is_404(client):
     assert client.get("/api/orders/999999").status_code == 404
