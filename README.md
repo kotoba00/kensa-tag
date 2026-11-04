@@ -130,3 +130,7 @@ cd firmware && pio run -e atoms3r-wifi -t upload
 | `firmware/` | 読み取り機のファーム |
 | `demo/` | 架空のデータと記録票 |
 | `tests/` | テスト |
+
+## ライセンス
+
+MIT（[LICENSE](LICENSE)）
