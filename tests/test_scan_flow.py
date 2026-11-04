@@ -350,7 +350,7 @@ def test_order_detail_places(conn):
     s.bind("100001", CARD_C, T0 + timedelta(hours=4))
     src = FakeSource(o=[order()], s=[Shipment(TODAY, "100001", 3, 10, "分")])
     places = {b["bunno"]: b["place"] for b in order_detail(conn, src, "100001")["bunnos"]}
-    assert places == {1: "検査場", 2: "エレベーター前", 3: "出荷済み", None: "プレス"}
+    assert places == {1: "社内検査", 2: "エレベーター", 3: "出荷済み", None: "プレス"}
 
 
 def test_quantity_stays_undecided_until_daily_report(conn):
@@ -375,7 +375,7 @@ def test_inspection_without_elevator_is_recorded_without_number(conn):
 def test_anomaly_is_a_japanese_sentence(conn):
     arrive(Scanner(conn), days_ago=5)
     found = detect(conn, FakeSource(o=[order()]), TODAY)
-    assert found[0].title == "注文100001の分納1が、検査場で読まれてから5日経っていますが、出荷データに載っていません。"
+    assert found[0].title == "注文100001の分納1が、社内検査で読まれてから5日経っていますが、出荷データに載っていません。"
 
 
 class FakeClient:
@@ -402,9 +402,9 @@ def test_triage_drops_unknown_ids_and_uses_current_api():
         summary="s",
         items=[
             TriageItem(anomaly_id="stagnant:1:1", priority="今日中", likely_cause="c",
-                       next_action="a", ask_role="検査場", group=""),
+                       next_action="a", ask_role="社内検査", group=""),
             TriageItem(anomaly_id="made-up", priority="様子見", likely_cause="c",
-                       next_action="a", ask_role="検査場", group=""),
+                       next_action="a", ask_role="社内検査", group=""),
         ],
     )
     client = FakeClient(SimpleNamespace(stop_reason="end_turn", parsed_output=report))
@@ -452,7 +452,7 @@ def _auto(tmp_path, src, client):
 
 def _qty_report(anomaly_id="qty:2:1"):
     item = TriageItem(anomaly_id=anomaly_id, priority="今日中", likely_cause="c",
-                      next_action="a", ask_role="検査場", group="")
+                      next_action="a", ask_role="社内検査", group="")
     return SimpleNamespace(stop_reason="end_turn", parsed_output=TriageReport(summary="s", items=[item]))
 
 

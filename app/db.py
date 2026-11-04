@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS bindings (
     id INTEGER PRIMARY KEY,
     uid TEXT NOT NULL,
     order_no TEXT NOT NULL,
-    bunno INTEGER,  -- エレベーター前を通るまでは空
+    bunno INTEGER,  -- エレベーターを通るまでは空
     started_at TEXT NOT NULL,
     ended_at TEXT,
     end_reason TEXT

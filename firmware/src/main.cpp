@@ -267,10 +267,13 @@ bool fetchFlow() {
     }
   }
   if (stations.empty()) return false;
-  if (current.code.isEmpty()) {
-    current = stations[0];
-    saveStation();
+  // 工程の名前はサーバーの一覧に合わせる。一覧から消えた工程なら先頭に戻す
+  const Station* match = nullptr;
+  for (const Station& st : stations) {
+    if (st.code == current.code && st.phase == current.phase) match = &st;
   }
+  current = match ? *match : stations[0];
+  saveStation();
   return true;
 }
 

@@ -43,7 +43,7 @@ def test_scan_then_order_detail(client):
     assert send("c", "04FFFFFFFFFFFF", at, "elevator")["bunno"] == 1
     assert send("d", "04FFFFFFFFFFFF", at + timedelta(hours=1), "inspection")["outcome"] == "recorded"
     places = client.get("/api/orders/200001").json()["bunnos"]
-    assert places[0]["place"] == "検査場"
+    assert places[0]["place"] == "社内検査"
 
 
 def test_reader_without_clock_sends_age(client):
@@ -59,7 +59,7 @@ def test_reader_without_clock_sends_age(client):
 
 def test_flow_lists_processes(client):
     body = client.get("/api/flow").json()
-    assert body["checkpoint_name"] == "検査場"
+    assert body["checkpoint_name"] == "社内検査"
     assert [p["code"] for p in body["processes"]][:2] == ["press", "elevator"]
 
 
@@ -76,10 +76,10 @@ def test_anomalies_report_triage_state(client):
 
 
 def test_tag_lookup_shows_order_and_place(client):
-    # デモの 100103 カード8 はエレベーター前を通って分納番号を持つ
+    # デモの 100103 カード8 はエレベーターを通って分納番号を持つ
     t = client.get("/api/tags/04A1B2C3D4E508").json()
     assert t["order_no"] == "100103" and t["bunno"] == 2
-    assert t["place"] == "エレベーター前" and t["in_use"] is True
+    assert t["place"] == "エレベーター" and t["in_use"] is True
     # 空白入りや小文字でも同じカードとして引ける
     assert client.get("/api/tags/04a1b 2c3d4e508").json()["bunno"] == 2
 

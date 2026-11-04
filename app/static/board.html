@@ -30,13 +30,13 @@ main { flex: 1; display: flex; min-height: 0; }
 #mapwrap { flex: 1; min-width: 0; padding: 12px; display: flex; align-items: center; justify-content: center; }
 svg { width: 100%; height: 100%; max-height: calc(100vh - 80px); }
 .area rect { fill: var(--floor); stroke: var(--line); stroke-width: 2; }
-.area text { fill: var(--muted); font-size: 18px; font-weight: 600; }
+.area text { fill: var(--muted); font-size: 20px; font-weight: 600; }
 .room rect { fill: none; stroke: var(--zone-line); stroke-width: 1; stroke-dasharray: 4 3; }
 .room text { fill: var(--muted); font-size: 13px; }
 .zone rect { fill: var(--zone); stroke: var(--zone-line); stroke-width: 1.5; }
 .zone.hot rect { stroke: var(--accent); stroke-width: 3; }
-.zone .name { fill: var(--ink); font-size: 15px; font-weight: 700; }
-.zone .count { fill: var(--muted); font-size: 13px; }
+.zone .name { fill: var(--ink); font-size: 20px; font-weight: 700; }
+.zone .count { fill: var(--muted); font-size: 16px; }
 .dot { cursor: pointer; transition: transform 1.2s cubic-bezier(.4, 0, .2, 1), opacity .6s; }
 .dot circle.body { stroke: var(--panel); stroke-width: 2; }
 .dot.ok circle.body { fill: var(--ok); }
@@ -44,7 +44,9 @@ svg { width: 100%; height: 100%; max-height: calc(100vh - 80px); }
 .dot.urgent circle.body { fill: var(--urgent); }
 .dot text { fill: var(--ink); font-size: 15px; font-variant-numeric: tabular-nums; text-anchor: middle; }
 .dot text.num { fill: #fff; font-size: 17px; font-weight: 700; dominant-baseline: central; }
-.dot.small text { font-size: 11px; }
+.dot.big text { font-size: 18px; }
+.dot.big text.num { font-size: 24px; }
+.dot.small text { font-size: 10.5px; }
 .dot.small text.num { font-size: 13px; }
 .dot.gone { opacity: 0; }
 .dot.selected circle.body { stroke: var(--ink); stroke-width: 3; }
@@ -90,11 +92,12 @@ svg { width: 100%; height: 100%; max-height: calc(100vh - 80px); }
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const NS = "http://www.w3.org/2000/svg";
-const TOP = 30;
+const TOP = 40;
 // 区画が狭いときや数が多いときは、点を小さくして詰める。いちばん小さいときは注文番号を省く
 const SIZES = [
+  { cw: 124, ch: 88, r: 26, lbl: true, cls: "big" },
   { cw: 92, ch: 64, r: 18, lbl: true, cls: "" },
-  { cw: 66, ch: 50, r: 13, lbl: true, cls: "small" },
+  { cw: 62, ch: 46, r: 12, lbl: true, cls: "small" },
   { cw: 32, ch: 32, r: 12, lbl: false, cls: "small" },
 ];
 let flow, zones = {}, items = [], selected = null;
@@ -134,8 +137,8 @@ function drawMap() {
     const [x, y, w, h] = p.zone;
     const g = el("g", { class: "zone", "data-code": p.code }, svg);
     el("rect", { x, y, width: w, height: h, rx: 6 }, g);
-    el("text", { class: "name", x: x + 8, y: y + 20 }, g).textContent = `${"①②③④⑤⑥⑦⑧⑨"[n] || ""} ${p.name}`;
-    zones[p.code] = { x, y, w, h, g, count: el("text", { class: "count", x: x + w - 8, y: y + 20, "text-anchor": "end" }, g),
+    el("text", { class: "name", x: x + 10, y: y + 26 }, g).textContent = `${"①②③④⑤⑥⑦⑧⑨"[n] || ""} ${p.name}`;
+    zones[p.code] = { x, y, w, h, g, count: el("text", { class: "count", x: x + w - 10, y: y + 26, "text-anchor": "end" }, g),
                       more: el("text", { class: "more", x: x + w - 8, y: y + h - 6, "text-anchor": "end" }, g) };
   });
   // 点は区画より手前に描く
@@ -191,7 +194,7 @@ function render() {
       const moved = d.process !== i.process || d.readAt !== i.last_read_at;
       g.setAttribute("class", `dot ${i.level} ${fit.cls}${i.id === selected ? " selected" : ""}`);
       for (const c of g.querySelectorAll("circle")) c.setAttribute("r", fit.r);
-      g.querySelector(".lbl").setAttribute("y", fit.r + 15);
+      g.querySelector(".lbl").setAttribute("y", fit.r + (fit.cls === "big" ? 22 : 15));
       g.querySelector(".lbl").style.display = fit.lbl ? "" : "none";
       if (moved) {
         // かざされた分納は、前の区画から動かして光らせる

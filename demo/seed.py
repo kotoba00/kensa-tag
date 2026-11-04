@@ -25,7 +25,7 @@ def build(today: date) -> dict[str, list[dict]]:
     orders = [
         ("100101", "DEMO-A10", "顧客A", 300, 2, False, False),   # 滞留。納期が近い
         ("100102", "DEMO-B20", "顧客B", 200, 12, False, False),  # 滞留。納期に余裕
-        ("100103", "DEMO-C30", "顧客A", 400, 9, False, False),   # 順調に検査場にある
+        ("100103", "DEMO-C30", "顧客A", 400, 9, False, False),   # 順調に社内検査にある
         ("100104", "DEMO-D40", "顧客C", 150, -1, True, False),   # かざし忘れ
         ("100105", "DEMO-E50", "顧客C", 120, -3, True, False),   # 同じ日のかざし忘れ
         ("100106", "DEMO-F60", "顧客B", 500, -2, False, False),  # 生産数と計量の差
@@ -78,7 +78,7 @@ def seed(db_path: Path, today: date) -> None:
         scan(uid, "press", days_ago, 9)
         return uid
 
-    # (注文番号, カード, 紐付けの何日前, 検査場に入った何日前)
+    # (注文番号, カード, 紐付けの何日前, 社内検査に入った何日前)
     flows = [
         ("100101", 1, 8, 6),
         ("100102", 2, 7, 4),
@@ -90,7 +90,7 @@ def seed(db_path: Path, today: date) -> None:
         uid = bind(order_no, card, bound)
         scan(uid, "elevator", bound, 11)
         scan(uid, "inspection", arrived, 15)
-    # エレベーター前を通って、まだ検査場に戻っていないもの
+    # エレベーターを通って、まだ社内検査に戻っていないもの
     scan(bind("100103", 8, 2), "elevator", 2, 11)
     # 紐付けただけで、分納番号がまだ無いもの
     bind("100103", 9, 0)

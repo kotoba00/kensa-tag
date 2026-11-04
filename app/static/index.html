@@ -92,7 +92,7 @@ dialog::backdrop { background: rgba(0,0,0,.4); }
     <div id="queue"></div>
   </section>
   <section>
-    <h2>いま<span id="cpName">検査場</span>にあるもの <span id="count"></span></h2>
+    <h2>いま<span id="cpName">社内検査</span>にあるもの <span id="count"></span></h2>
     <form id="lookup"><input id="lookupNo" inputmode="numeric" autocomplete="off" aria-label="注文番号" placeholder="注文番号"><button class="pick">分納の場所を見る</button></form>
     <div class="table-wrap"><table>
       <thead><tr><th>注文番号</th><th>分納</th><th>品番</th><th>数量</th><th>入った日</th><th>経過</th><th>納期まで</th></tr></thead>
@@ -133,7 +133,7 @@ function show(r) {
   const el = $("result");
   el.dataset.tone = TONES[r.outcome] || "";
   const who = r.order_no ? `注文 ${esc(r.order_no)}${r.bunno ? " / 分納 " + r.bunno : ""}` : "";
-  // エレベーター前では、番号を離れた場所からでも読めるように大きく出す
+  // エレベーターでは、番号を離れた場所からでも読めるように大きく出す
   const big = r.outcome === "assigned" || r.outcome === "already_assigned";
   el.innerHTML = big ? `<b class="big">分納 ${r.bunno}</b><span>注文 ${esc(r.order_no)}</span>` : `<b>${esc(r.message)}</b><span>${who}</span>`;
 }

@@ -1,4 +1,4 @@
-"""読み取りを受けて履歴を残す。分納番号はエレベーター前で1回だけ振る。"""
+"""読み取りを受けて履歴を残す。分納番号はエレベーターで1回だけ振る。"""
 
 import sqlite3
 from dataclasses import dataclass

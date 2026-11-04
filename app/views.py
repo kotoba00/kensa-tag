@@ -92,7 +92,7 @@ def order_detail(conn: sqlite3.Connection, source: ProductionSource, order_no: s
         row(n, by_bunno.get(n), [s for s in shipments if s.bunno == n and s.qty > 0])
         for n in numbers
     ]
-    # エレベーター前をまだ通っていないカード
+    # エレベーターをまだ通っていないカード
     rows += [row(None, b, []) for b in bindings if b["bunno"] is None and b["ended_at"] is None]
     return {
         "order_no": order_no,
