@@ -21,6 +21,8 @@ class ScanResult:
     order_no: str | None = None
     bunno: int | None = None
     replayed: bool = False
+    # 開始か終了かを読み取り機に任せたときは、こちらで決めた方
+    phase: str | None = None
 
 
 def handle_scan(
@@ -43,20 +45,21 @@ def handle_scan(
         kind, value = classify(raw)
         proc = flow().get(process)
         binding_id = None
-        if proc is None or phase not in proc.phases:
+        toggle = proc is not None and phase == POINT and _two_way(proc)
+        if proc is None or not (toggle or phase in proc.phases):
             # 送信待ちの読み取りを止めないよう、エラーにせず記録して知らせる
             result = ScanResult("unknown_process", f"工程の設定にありません: {process} {phase}")
         elif kind == "order":
             result = _on_order(conn, proc, device_id, value, read_at)
         elif kind in ("ntag", "uhf", "hf"):
-            result, binding_id = _on_tag(conn, proc, phase, device_id, value, read_at)
+            result, binding_id = _on_tag(conn, proc, phase, device_id, value, read_at, toggle)
         else:
             result = ScanResult("unknown", f"読み取れない形式です: {value}")
 
         conn.execute(
             """INSERT INTO reads (event_id, read_at, process, phase, device_id, kind, value, binding_id, outcome)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (event_id, read_at.isoformat(), process, phase, device_id, kind, value, binding_id, result.outcome),
+            (event_id, read_at.isoformat(), process, result.phase or phase, device_id, kind, value, binding_id, result.outcome),
         )
     return result
 
@@ -84,7 +87,11 @@ def _take_pending(conn, device_id, read_at) -> str | None:
     return pending["order_no"] if timedelta(0) <= age <= PENDING_TTL else None
 
 
-def _on_tag(conn, proc: Process, phase, device_id, uid, read_at):
+def _two_way(proc: Process) -> bool:
+    return set(proc.phases) == {"start", "end"}
+
+
+def _on_tag(conn, proc: Process, phase, device_id, uid, read_at, toggle=False):
     if proc.action == "bind":
         order_no = _take_pending(conn, device_id, read_at)
         if order_no:
@@ -98,6 +105,10 @@ def _on_tag(conn, proc: Process, phase, device_id, uid, read_at):
             return ScanResult("no_order", "先に記録票の QR を読んでください"), None
         return ScanResult("unbound", "このカードは注文に紐付いていません"), None
 
+    common = {"order_no": binding["order_no"], "bunno": binding["bunno"]}
+    if toggle:
+        return _toggle(conn, proc, binding, uid, read_at, common), binding["id"]
+
     # 同じ工程の読み直しだけを間引く。工程を移ったら、すぐ読んでも別の記録
     history = conn.execute(
         """SELECT read_at, outcome FROM reads
@@ -105,7 +116,6 @@ def _on_tag(conn, proc: Process, phase, device_id, uid, read_at):
            ORDER BY read_at DESC""",
         (binding["id"], uid, proc.code, phase),
     ).fetchall()
-    common = {"order_no": binding["order_no"], "bunno": binding["bunno"]}
     if history and read_at - datetime.fromisoformat(history[0]["read_at"]) < DEBOUNCE:
         return ScanResult("debounced", "さっき読み取り済みです", **common), binding["id"]
 
@@ -116,6 +126,27 @@ def _on_tag(conn, proc: Process, phase, device_id, uid, read_at):
     if any(h["outcome"] == "recorded" for h in history):
         return ScanResult("already_recorded", f"{_label(proc, phase)}は記録済みです", **common), binding["id"]
     return ScanResult("recorded", _recorded_message(proc, phase), **common), binding["id"]
+
+
+def _toggle(conn, proc: Process, binding, uid, read_at, common) -> ScanResult:
+    """1回目は開始、開始のあとは終了。間違えて終了にしても、もう一度読めば開始に戻る。"""
+    last = conn.execute(
+        """SELECT read_at, phase, outcome FROM reads
+           WHERE binding_id = ? AND value = ? AND process = ?
+           ORDER BY read_at DESC LIMIT 1""",
+        (binding["id"], uid, proc.code),
+    ).fetchone()
+    # 二度読みで開始と終了が続けて付かないよう、開始か終了かを問わず間引く
+    if last and read_at - datetime.fromisoformat(last["read_at"]) < DEBOUNCE:
+        return ScanResult("debounced", "さっき読み取り済みです", phase=last["phase"], **common)
+    started = conn.execute(
+        """SELECT phase FROM reads
+           WHERE binding_id = ? AND value = ? AND process = ? AND outcome = 'recorded'
+           ORDER BY read_at DESC LIMIT 1""",
+        (binding["id"], uid, proc.code),
+    ).fetchone()
+    phase = "end" if started and started["phase"] == "start" else "start"
+    return ScanResult("recorded", _recorded_message(proc, phase), phase=phase, **common)
 
 
 def _label(proc: Process, phase) -> str:

@@ -246,8 +246,28 @@ def test_start_and_end_are_recorded_separately(conn):
 def test_unknown_process_is_stored_without_failing(conn):
     s = Scanner(conn)
     assert s(CARD_A, process="nowhere").outcome == "unknown_process"
-    assert s(CARD_A, process="packing", phase="point").outcome == "unknown_process"
+    assert s(CARD_A, process="inspection", phase="start").outcome == "unknown_process"
     assert conn.execute("SELECT COUNT(*) FROM reads").fetchone()[0] == 2
+
+
+def test_reader_alternates_start_and_end(conn):
+    s = Scanner(conn)
+    s.bind()
+    s.elevator()
+    at = T0 + timedelta(hours=1)
+    first = s(CARD_A, at, process="packing")
+    assert (first.outcome, first.phase, first.message) == ("recorded", "start", "包装を開始しました")
+    # 読み取り機の二度読みは終了にしない
+    assert s(CARD_A, at + timedelta(seconds=2), process="packing").outcome == "debounced"
+    assert s(CARD_A, at + timedelta(minutes=30), process="packing").phase == "end"
+    # 間違えて終了にしても、もう一度読めば開始
+    assert s(CARD_A, at + timedelta(minutes=31), process="packing").phase == "start"
+    rows = conn.execute("SELECT phase FROM reads WHERE process='packing' AND outcome='recorded' ORDER BY id").fetchall()
+    assert [r["phase"] for r in rows] == ["start", "end", "start"]
+    src = FakeSource(o=[order()])
+    assert order_detail(conn, src, "100001")["bunnos"][0]["place"] == "包装（開始）"
+    # 別の工程は別に数える
+    assert s(CARD_A, at + timedelta(minutes=32), process="finishing").phase == "start"
 
 
 def test_process_can_be_added_by_config_only(conn, tmp_path, monkeypatch):

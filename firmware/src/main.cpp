@@ -172,7 +172,7 @@ void showBunno(int bunno, const String& orderNo) {
   M5.Display.drawString("注文 " + orderNo, cx, 116);
 }
 
-void showOutcome(const String& outcome, const String& orderNo, int bunno, uint32_t now) {
+void showOutcome(const String& outcome, const String& orderNo, int bunno, const String& phase, uint32_t now) {
   String order = orderNo.isEmpty() ? "" : "注文 " + orderNo;
   String who = bunno > 0 ? order + " / " + String(bunno) : order;
   if (outcome == "assigned" || outcome == "already_assigned") {
@@ -185,7 +185,10 @@ void showOutcome(const String& outcome, const String& orderNo, int bunno, uint32
   } else if (outcome == "bound") {
     show(TFT_DARKGREEN, "紐付けOK", order);
   } else if (outcome == "recorded") {
-    show(TFT_DARKGREEN, "記録OK", who);
+    // 開始は緑、終了は青で、離れていても見分けられるようにする
+    if (phase == "start") show(TFT_DARKGREEN, "開始", who);
+    else if (phase == "end") show(TFT_BLUE, "終了", who);
+    else show(TFT_DARKGREEN, "記録OK", who);
   } else if (outcome == "in_use") {
     // 製品に付いたままのカードかもしれない。付け替えるなら置き直してもう一度かざす
     show(TFT_ORANGE, "使用中", "注文 " + orderNo + (bunno > 0 ? " / " + String(bunno) : ""), "付け替えは再タッチ");
@@ -261,16 +264,15 @@ bool fetchFlow() {
   }
   netNote = "";
   stations.clear();
+  // 開始と終了のある工程も1つにまとめる。どちらかはサーバーが読んだ順で決める
   for (JsonObject p : doc["processes"].as<JsonArray>()) {
-    for (JsonVariant ph : p["phases"].as<JsonArray>()) {
-      stations.push_back({p["code"].as<String>(), p["name"].as<String>(), ph.as<String>()});
-    }
+    stations.push_back({p["code"].as<String>(), p["name"].as<String>(), "point"});
   }
   if (stations.empty()) return false;
   // 工程の名前はサーバーの一覧に合わせる。一覧から消えた工程なら先頭に戻す
   const Station* match = nullptr;
   for (const Station& st : stations) {
-    if (st.code == current.code && st.phase == current.phase) match = &st;
+    if (st.code == current.code) match = &st;
   }
   current = match ? *match : stations[0];
   saveStation();
@@ -328,7 +330,7 @@ void sendNext(uint32_t now) {
     return;
   }
   if (res["replayed"] | false) return;
-  showOutcome(res["outcome"] | "", res["order_no"] | "", res["bunno"] | 0, now);
+  showOutcome(res["outcome"] | "", res["order_no"] | "", res["bunno"] | 0, res["phase"] | "", now);
 }
 
 void openMenu() {
@@ -340,7 +342,7 @@ void openMenu() {
   menuOpen = true;
   menuIndex = 0;
   for (size_t i = 0; i < stations.size(); i++) {
-    if (stations[i].code == current.code && stations[i].phase == current.phase) menuIndex = i;
+    if (stations[i].code == current.code) menuIndex = i;
   }
   showingResult = false;
   drawMenu();

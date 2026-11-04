@@ -27,8 +27,6 @@ section.full { grid-column: 1 / -1; }
 h2 { font-size: 16px; margin: 0 0 10px; }
 #stations { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
 #stations .pick[data-station=lookup] { margin-left: auto; }
-#phases { display: flex; gap: 6px; margin-bottom: 10px; }
-#phases:empty { display: none; }
 .pick { font: inherit; font-size: 15px; padding: 7px 12px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); cursor: pointer; }
 .pick[aria-pressed=true] { background: var(--accent); border-color: var(--accent); color: var(--panel); font-weight: 600; }
 #lookup { display: flex; gap: 6px; margin-bottom: 10px; }
@@ -86,7 +84,6 @@ dialog::backdrop { background: rgba(0,0,0,.4); }
   <section>
     <h2>この端末の工程</h2>
     <div id="stations" role="group" aria-label="工程"></div>
-    <div id="phases" role="group" aria-label="開始か終了か"></div>
     <input id="scan" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="読み取り入力" placeholder="QR またはカード">
     <div id="result" data-tone="" aria-live="polite"></div>
     <div id="queue"></div>
@@ -222,27 +219,24 @@ async function lookup(v) {
     <span>注文 ${orderLink(t.order_no)} ／ ${esc(t.item_code || "")} ／ 納期 ${esc(t.due_date || "-")}</span><br>
     <span>いま <strong>${esc(t.place)}</strong>（${esc(fmt(t.last_read_at))}）${t.in_use ? "" : " ／ このカードは使い終わっています"}</span>`;
 }
-let flow = null, station = null, phase = "point";
+// 開始か終了かはサーバーが読んだ順で決める
+let flow = null, station = null;
+const phase = "point";
 function storedStation() { try { return localStorage.getItem("kensa-station"); } catch { return null; } }
 function renderStation() {
   $("stations").innerHTML = stations().map(p => `<button class="pick" data-station="${esc(p.code)}" aria-pressed="${p === station}">${esc(p.name)}</button>`).join("");
-  const twoWay = station.phases.length > 1;
-  $("phases").innerHTML = twoWay ? station.phases.map(ph => `<button class="pick" data-phase="${ph}" aria-pressed="${ph === phase}">${ph === "start" ? "開始" : "終了"}</button>`).join("") : "";
   $("scan").placeholder = HINT[station.action];
   $("result").dataset.tone = "";
   $("result").innerHTML = `<b>${esc(station.name)}</b><span>${esc(HINT[station.action])}</span>`;
 }
 function pickStation(p) {
   station = p;
-  if (!p.phases.includes(phase)) phase = p.phases[0];
   try { localStorage.setItem("kensa-station", p.code); } catch {}
   renderStation();
 }
 document.addEventListener("click", e => {
   const s = e.target.closest("[data-station]");
   if (s) { pickStation(stations().find(p => p.code === s.dataset.station)); input.focus(); }
-  const ph = e.target.closest("[data-phase]");
-  if (ph) { phase = ph.dataset.phase; renderStation(); input.focus(); }
 });
 $("lookup").addEventListener("submit", e => {
   e.preventDefault();

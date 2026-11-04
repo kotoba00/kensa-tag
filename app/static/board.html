@@ -25,6 +25,9 @@ h1 { margin: 0; font-size: 20px; }
 #clock { font-variant-numeric: tabular-nums; color: var(--muted); }
 .legend { display: flex; gap: 14px; margin-left: auto; font-size: 14px; color: var(--muted); flex-wrap: wrap; }
 .legend span::before { content: ""; display: inline-block; width: 11px; height: 11px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; background: var(--c); }
+.legend span.hollow::before { background: var(--panel); box-shadow: inset 0 0 0 3px var(--c); width: 13px; height: 13px; }
+.legend .sep { width: 1px; background: var(--line); align-self: stretch; }
+.legend .sep::before { display: none; }
 header a { color: var(--accent); font-size: 14px; }
 main { flex: 1; display: flex; min-height: 0; }
 #mapwrap { flex: 1; min-width: 0; padding: 12px; display: flex; align-items: center; justify-content: center; }
@@ -48,6 +51,16 @@ svg { width: 100%; height: 100%; max-height: calc(100vh - 80px); }
 .dot.big text.num { font-size: 24px; }
 .dot.small text { font-size: 10.5px; }
 .dot.small text.num { font-size: 13px; }
+/* 開始したら塗りつぶし、終わったら白抜き。色は急ぎ具合のまま */
+.dot.end circle.body { fill: var(--panel); stroke-width: 5; }
+.dot.end.ok circle.body { stroke: var(--ok); }
+.dot.end.warn circle.body { stroke: var(--warn); }
+.dot.end.urgent circle.body { stroke: var(--urgent); }
+.dot.end text.num { fill: var(--ink); }
+.dot .badge { display: none; }
+.dot.start .badge, .dot.end .badge { display: inline; }
+.dot .badge circle { fill: var(--ink); stroke: var(--panel); stroke-width: 2; }
+.dot .badge text { fill: var(--panel); font-weight: 700; dominant-baseline: central; }
 .dot.gone { opacity: 0; }
 .dot.selected circle.body { stroke: var(--ink); stroke-width: 3; }
 .ring { fill: none; stroke: var(--accent); stroke-width: 3; opacity: 0; }
@@ -81,6 +94,9 @@ svg { width: 100%; height: 100%; max-height: calc(100vh - 80px); }
     <span style="--c: var(--ok)">順調</span>
     <span style="--c: var(--warn)">確認が要る</span>
     <span style="--c: var(--urgent)">今日中に対応</span>
+    <span class="sep" aria-hidden="true"></span>
+    <span style="--c: var(--muted)">▶ 作業中</span>
+    <span class="hollow" style="--c: var(--muted)">✓ 終わって次待ち</span>
     <a href="/">読み取りの画面へ</a>
   </div>
 </header>
@@ -167,7 +183,9 @@ function render() {
   const seen = new Set();
   for (const [code, z] of Object.entries(zones)) {
     const list = (byZone[code] || []).sort((a, b) => a.order_no.localeCompare(b.order_no) || (a.bunno ?? 99) - (b.bunno ?? 99));
-    z.count.textContent = list.length ? `${list.length} 件` : "";
+    const working = list.filter(i => i.phase === "start").length;
+    const done = list.filter(i => i.phase === "end").length;
+    z.count.textContent = !list.length ? "" : working || done ? `▶${working}  ✓${done}` : `${list.length} 件`;
     const fit = layout(z, list.length);
     let hidden = 0;
     list.forEach((i, k) => {
@@ -181,6 +199,9 @@ function render() {
         el("circle", { class: "body", r: 18 }, g);
         el("text", { class: "num", y: 0 }, g);
         el("text", { class: "lbl", y: 36 }, g);
+        const badge = el("g", { class: "badge" }, g);
+        el("circle", { r: 9 }, badge);
+        el("text", {}, badge);
         g.addEventListener("click", () => select(i.id));
         g.addEventListener("keydown", e => { if (e.key === "Enter") select(i.id); });
         // 現れるときは少し上から落とす
@@ -192,8 +213,16 @@ function render() {
       }
       const g = d.g;
       const moved = d.process !== i.process || d.readAt !== i.last_read_at;
-      g.setAttribute("class", `dot ${i.level} ${fit.cls}${i.id === selected ? " selected" : ""}`);
-      for (const c of g.querySelectorAll("circle")) c.setAttribute("r", fit.r);
+      const phase = i.phase === "start" || i.phase === "end" ? i.phase : "";
+      g.setAttribute("class", `dot ${i.level} ${phase} ${fit.cls}${i.id === selected ? " selected" : ""}`);
+      // 右上の小さな印。開始は ▶、終了は ✓
+      const br = Math.max(7, Math.round(fit.r * 0.42));
+      const badge = g.querySelector(".badge");
+      badge.setAttribute("transform", `translate(${Math.round(fit.r * 0.78)}, ${-Math.round(fit.r * 0.78)})`);
+      badge.querySelector("circle").setAttribute("r", br);
+      badge.querySelector("text").style.fontSize = `${Math.round(br * 1.2)}px`;
+      badge.querySelector("text").textContent = phase === "start" ? "▶" : "✓";
+      for (const c of g.querySelectorAll(":scope > circle")) c.setAttribute("r", fit.r);
       g.querySelector(".lbl").setAttribute("y", fit.r + (fit.cls === "big" ? 22 : 15));
       g.querySelector(".lbl").style.display = fit.lbl ? "" : "none";
       if (moved) {
