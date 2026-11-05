@@ -6,6 +6,7 @@ action の意味:
   record 読んだことを記録する
 phases は point（1回読むだけ）か start と end（開始と終了）。
 checkpoint は「いま何があるか」を見張る工程で、Claude に渡す検出の基準になる。
+outsource は内職さんに渡す工程。開始で渡し、納品で終了する。誰に渡したかは内職依頼に入る。
 zone と map は工場図の画面で使う。zone は [左, 上, 幅, 高さ]、map の大きさの中で決める。
 """
 
@@ -34,6 +35,7 @@ class Flow:
     processes: tuple[Process, ...]
     checkpoint: str
     map: dict | None = None
+    outsource: str | None = None
 
     def get(self, code: str) -> Process | None:
         return next((p for p in self.processes if p.code == code), None)
@@ -61,4 +63,5 @@ def flow() -> Flow:
         ),
         checkpoint=raw["checkpoint"],
         map=raw.get("map"),
+        outsource=raw.get("outsource"),
     )

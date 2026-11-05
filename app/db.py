@@ -38,6 +38,18 @@ CREATE TABLE IF NOT EXISTS pending_orders (
     read_at TEXT NOT NULL
 );
 
+-- 内職依頼。本番の正本は AppSheet で、ここは同じ形の写し（デモでは /naishoku から入れる）
+CREATE TABLE IF NOT EXISTS naishoku (
+    id INTEGER PRIMARY KEY,
+    order_no TEXT NOT NULL,
+    bunno INTEGER NOT NULL,
+    qty INTEGER,
+    worker TEXT NOT NULL,
+    due_date TEXT,  -- 内職さんへの納期
+    created_at TEXT NOT NULL,
+    UNIQUE (order_no, bunno)
+);
+
 CREATE TABLE IF NOT EXISTS triage_runs (
     id INTEGER PRIMARY KEY,
     created_at TEXT NOT NULL,

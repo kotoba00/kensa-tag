@@ -9,6 +9,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, time
 
 from .flow import flow
+from .naishoku import out_now, requests
 from .source import Order, ProductionSource, Shipment
 
 STAGNANT_DAYS = 3
@@ -18,7 +19,7 @@ QTY_TOLERANCE = 0.02  # 計量の誤差として許す割合。現場の値が�
 @dataclass
 class Anomaly:
     id: str
-    kind: str  # forgotten / stagnant / qty_mismatch / bunno_total
+    kind: str  # forgotten / stagnant / qty_mismatch / bunno_total / unrequested / overdue_return / request_unscanned
     order_no: str
     bunno: int | None
     title: str
@@ -55,6 +56,19 @@ def _arrivals(conn: sqlite3.Connection) -> dict[tuple[str, int], str]:
     return {(r["order_no"], r["bunno"]): r["first_read"] for r in rows}
 
 
+def _returns(conn: sqlite3.Connection) -> dict[tuple[str, int], str]:
+    if not flow().outsource:
+        return {}
+    rows = conn.execute(
+        """SELECT b.order_no, b.bunno, MAX(r.read_at) AS returned_at
+           FROM reads r JOIN bindings b ON b.id = r.binding_id
+           WHERE r.process = ? AND r.phase = 'end' AND r.outcome = 'recorded'
+           GROUP BY b.order_no, b.bunno""",
+        (flow().outsource,),
+    ).fetchall()
+    return {(r["order_no"], r["bunno"]): r["returned_at"] for r in rows}
+
+
 def _who(order_no: str, bunno: int | None) -> str:
     return f"注文{order_no}の分納{bunno}" if bunno is not None else f"注文{order_no}の分納番号が未定の分"
 
@@ -74,6 +88,7 @@ def detect(conn: sqlite3.Connection, source: ProductionSource, today: date) -> l
     found += _stagnant(conn, shipments, arrivals, orders, today)
     found += _qty_mismatch(source, shipments)
     found += _bunno_total(shipments, orders)
+    found += _naishoku(conn, orders, today)
     return found
 
 
@@ -112,12 +127,17 @@ def _forgotten(conn, shipments, arrivals, orders) -> list[Anomaly]:
 
 def _stagnant(conn, shipments, arrivals, orders, today) -> list[Anomaly]:
     shipped = {(s.order_no, s.bunno) for s in shipments if s.qty > 0}
+    # 内職さんの所にあるものは、内職さんへの納期で見る
+    away = {(r["order_no"], r["bunno"]) for r in out_now(conn) if r["phase"] == "start"}
+    returned = _returns(conn)
     out = []
     for (order_no, bunno), first_read in arrivals.items():
         order = orders.get(order_no)
-        if (order_no, bunno) in shipped or (order and order.stock):
+        if (order_no, bunno) in shipped or (order_no, bunno) in away or (order and order.stock):
             continue
-        days = (today - datetime.fromisoformat(first_read).astimezone().date()).days
+        # 内職さんから納品されたものは、納品の日から数え直す
+        since = max(first_read, returned.get((order_no, bunno), first_read))
+        days = (today - datetime.fromisoformat(since).astimezone().date()).days
         if days < STAGNANT_DAYS:
             continue
         due = order.due_date if order else None
@@ -189,6 +209,85 @@ def _bunno_total(shipments, orders: dict[str, Order]) -> list[Anomaly]:
                     "ordered": order.qty,
                     "shipped_net": total,
                     "statuses": sorted(statuses[order_no]),
+                },
+            )
+        )
+    return out
+
+
+def _naishoku(conn, orders, today) -> list[Anomaly]:
+    """社外検査の読み取りと内職依頼を突き合わせる。"""
+    if not flow().outsource:
+        return []
+    asked = requests(conn)
+    out = []
+    for r in out_now(conn):
+        key = (r["order_no"], r["bunno"])
+        if r["phase"] != "start":
+            continue
+        handed = datetime.fromisoformat(r["read_at"]).astimezone().date()
+        req = asked.get(key)
+        order = orders.get(r["order_no"])
+        common = {
+            "handed_at": r["read_at"],
+            "item_code": order.item_code if order else None,
+            "order_due_date": order.due_date.isoformat() if order and order.due_date else None,
+        }
+        if req is None:
+            # 渡した日のうちは入力を待つ
+            if handed >= today:
+                continue
+            out.append(
+                Anomaly(
+                    id=f"unrequested:{key[0]}:{key[1]}",
+                    kind="unrequested",
+                    order_no=key[0],
+                    bunno=key[1],
+                    title=f"{_who(*key)}は社外検査に渡してから{(today - handed).days}日経ちますが、内職依頼が入力されていません。",
+                    evidence=common,
+                )
+            )
+            continue
+        due = date.fromisoformat(req["due_date"]) if req["due_date"] else None
+        if due and due < today:
+            out.append(
+                Anomaly(
+                    id=f"overdue_return:{key[0]}:{key[1]}",
+                    kind="overdue_return",
+                    order_no=key[0],
+                    bunno=key[1],
+                    title=f"{_who(*key)}は{req['worker']}さんへの納期{due.isoformat()}を{(today - due).days}日過ぎましたが、納品されていません。",
+                    evidence={**common, "worker": req["worker"], "worker_due_date": due.isoformat(), "qty": req["qty"]},
+                )
+            )
+    # 依頼はあるのに、そのカードが社外検査で読まれていない
+    scanned = {
+        (r["order_no"], r["bunno"])
+        for r in conn.execute(
+            """SELECT DISTINCT b.order_no, b.bunno FROM reads r JOIN bindings b ON b.id = r.binding_id
+               WHERE r.process = ? AND r.outcome = 'recorded'""",
+            (flow().outsource,),
+        )
+    }
+    for key, req in asked.items():
+        if key in scanned:
+            continue
+        order = orders.get(key[0])
+        out.append(
+            Anomaly(
+                id=f"request_unscanned:{key[0]}:{key[1]}",
+                kind="request_unscanned",
+                order_no=key[0],
+                bunno=key[1],
+                title=f"{_who(*key)}は{req['worker']}さんへの内職依頼が入っていますが、カードは社外検査で読まれていません。",
+                evidence={
+                    "worker": req["worker"],
+                    "requested_at": req["created_at"],
+                    "worker_due_date": req["due_date"],
+                    "qty": req["qty"],
+                    "item_code": order.item_code if order else None,
+                    # 同じ注文で社外検査に出ている分納。分納番号の書き写し違いを疑う材料
+                    "same_order_out": sorted(b for o, b in scanned if o == key[0]),
                 },
             )
         )

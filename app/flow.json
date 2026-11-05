@@ -1,20 +1,21 @@
 {
   "checkpoint": "inspection",
+  "outsource": "homework",
   "processes": [
     {"code": "press", "name": "プレス", "action": "bind", "phases": ["point"], "zone": [40, 60, 560, 300]},
     {"code": "elevator", "name": "エレベーター", "action": "assign", "phases": ["point"], "zone": [40, 370, 560, 250]},
     {"code": "finishing", "name": "仕上", "action": "record", "phases": ["start", "end"], "zone": [950, 340, 280, 280]},
     {"code": "inspection", "name": "社内検査", "action": "record", "phases": ["point"], "zone": [950, 60, 280, 280]},
-    {"code": "homework", "name": "社外検査", "action": "record", "phases": ["start", "end"], "zone": [1295, 60, 190, 560]},
+    {"code": "homework", "name": "社外検査", "action": "record", "phases": ["start", "end"], "zone": [1295, 60, 370, 560]},
     {"code": "final_check", "name": "出荷検査", "action": "record", "phases": ["start", "end"], "zone": [670, 60, 280, 280]},
     {"code": "packing", "name": "包装", "action": "record", "phases": ["start", "end"], "zone": [670, 340, 280, 280]}
   ],
   "map": {
-    "width": 1520, "height": 660,
+    "width": 1700, "height": 660,
     "areas": [
       {"name": "1階", "rect": [20, 20, 600, 620]},
       {"name": "2階", "rect": [650, 20, 600, 620]},
-      {"name": "外（社外検査）", "rect": [1280, 20, 220, 620]}
+      {"name": "外（社外検査）", "rect": [1280, 20, 400, 620]}
     ]
   }
 }

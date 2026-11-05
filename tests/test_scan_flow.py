@@ -511,3 +511,53 @@ def test_auto_triage_does_not_retry_same_failure(tmp_path):
     client.kwargs = None
     auto.poke(sig, None)
     assert not auto.thinking and client.kwargs is None
+
+
+def _out(scan, card, at, no="100001"):
+    scan.bind(no, card, at)
+    scan(card, at + timedelta(minutes=1), process="elevator")
+    scan(card, at + timedelta(hours=1), process="inspection")
+    return scan(card, at + timedelta(hours=2), process="homework")
+
+
+def test_naishoku_handover_needs_request_after_the_day(conn):
+    from app.naishoku import pending
+
+    scan = Scanner(conn)
+    assert _out(scan, CARD_A, T0).phase == "start"
+    src = FakeSource(o=[Order("100001", "X", "顧客", 10, None, False)])
+    assert [p["bunno"] for p in pending(conn, src)] == [1]
+    # 渡した日のうちは待つ。翌日になっても入力が無ければ拾う
+    assert not [a for a in detect(conn, src, TODAY) if a.kind == "unrequested"]
+    assert [a.kind for a in detect(conn, src, TODAY + timedelta(days=1)) if a.kind == "unrequested"] == ["unrequested"]
+
+
+def test_naishoku_overdue_and_return_restarts_stagnant(conn):
+    from app.naishoku import add
+
+    scan = Scanner(conn)
+    _out(scan, CARD_A, T0)
+    src = FakeSource(o=[Order("100001", "X", "顧客", 10, None, False)])
+    src.workers = lambda: ["内職A"]
+    add(conn, src, order_no="100001", bunno=1, worker="内職A", due_date=TODAY + timedelta(days=2), qty=10)
+    late = TODAY + timedelta(days=5)
+    kinds = [a.kind for a in detect(conn, src, late)]
+    assert "overdue_return" in kinds and "stagnant" not in kinds
+
+    # 納品で受け取ったら、滞留は納品の日から数え直す
+    scan(CARD_A, datetime.combine(late, T0.timetz()), process="homework")
+    kinds = [a.kind for a in detect(conn, src, late + timedelta(days=1))]
+    assert "overdue_return" not in kinds and "stagnant" not in kinds
+    assert "stagnant" in [a.kind for a in detect(conn, src, late + timedelta(days=3))]
+
+
+def test_request_without_scan_points_to_other_bunno(conn):
+    from app.naishoku import add
+
+    scan = Scanner(conn)
+    _out(scan, CARD_A, T0)
+    src = FakeSource(o=[Order("100001", "X", "顧客", 10, None, False)])
+    src.workers = lambda: ["内職A"]
+    add(conn, src, order_no="100001", bunno=2, worker="内職A", due_date=None, qty=None)
+    found = [a for a in detect(conn, src, TODAY + timedelta(days=1)) if a.kind == "request_unscanned"]
+    assert found[0].bunno == 2 and found[0].evidence["same_order_out"] == [1]

@@ -14,6 +14,7 @@ from .auto_triage import AutoTriage
 from .db import connect
 from .detect import detect
 from .flow import flow
+from .naishoku import NaishokuError, add, pending
 from .service import POINT, handle_scan
 from .source import JsonSource
 from .triage import TriageUnavailable, latest_report, run_triage, save_report, signature
@@ -83,6 +84,7 @@ def get_flow():
         "checkpoint_name": f.checkpoint_name,
         "processes": [p.__dict__ for p in f.processes],
         "map": f.map,
+        "outsource": f.outsource,
     }
 
 
@@ -107,6 +109,27 @@ def get_board(conn: Conn):
         "items": board(conn, source, today, found, latest_report(conn)),
         "generated_at": datetime.now().astimezone().isoformat(),
     }
+
+
+class NaishokuIn(BaseModel):
+    order_no: str
+    bunno: int
+    worker: str
+    due_date: date | None = None
+    qty: int | None = Field(default=None, ge=0)
+
+
+@app.get("/api/naishoku")
+def naishoku(conn: Conn):
+    return {"workers": source.workers(), "pending": pending(conn, source)}
+
+
+@app.post("/api/naishoku", status_code=201)
+def naishoku_add(body: NaishokuIn, conn: Conn):
+    try:
+        return add(conn, source, **body.model_dump())
+    except NaishokuError as e:
+        raise HTTPException(409, str(e)) from e
 
 
 @app.get("/api/tags/{raw}")
@@ -160,6 +183,12 @@ def index():
 def board_page():
     # 工場図。大きな画面に出しっぱなしにする
     return FileResponse(STATIC / "board.html")
+
+
+@app.get("/naishoku")
+def naishoku_page():
+    # 内職さんに渡すときの入力。本番の AppSheet のフォームと同じ動きをまねる
+    return FileResponse(STATIC / "naishoku.html")
 
 
 @app.get("/t/{uid}")

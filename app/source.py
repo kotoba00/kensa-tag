@@ -1,6 +1,6 @@
 """生産管理データの読み込み。接続先は差し替えられるよう、ここで閉じる。
 
-SOURCE_DIR に orders.json / shipments.json / lots.json を置く。
+SOURCE_DIR に orders.json / shipments.json / lots.json / workers.json を置く。
 本番では生産管理から同じ形で書き出したものを別のフォルダーに置く。
 """
 
@@ -45,6 +45,7 @@ class ProductionSource(Protocol):
     def orders(self) -> list[Order]: ...
     def shipments(self) -> list[Shipment]: ...
     def lots(self) -> list[Lot]: ...
+    def workers(self) -> list[str]: ...
 
 
 class JsonSource:
@@ -85,3 +86,8 @@ class JsonSource:
             Lot(str(r["order_no"]), int(r["bunno"]), int(r["produced"]))
             for r in self._load("lots.json")
         ]
+
+    def workers(self) -> list[str]:
+        # 内職さんの呼び名。AppSheet のグループと同じ並び
+        path = self.directory / "workers.json"
+        return [str(w) for w in json.loads(path.read_text(encoding="utf-8"))] if path.exists() else []

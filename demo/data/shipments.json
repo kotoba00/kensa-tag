@@ -1,34 +1,34 @@
 [
  {
-  "ship_date": "2026-11-02",
+  "ship_date": "2026-11-04",
   "order_no": "100104",
   "bunno": 1,
   "qty": 150,
   "status": "完"
  },
  {
-  "ship_date": "2026-11-02",
+  "ship_date": "2026-11-04",
   "order_no": "100105",
   "bunno": 1,
   "qty": 120,
   "status": "完"
  },
  {
-  "ship_date": "2026-11-01",
+  "ship_date": "2026-11-03",
   "order_no": "100106",
   "bunno": 1,
   "qty": 212,
   "status": "分"
  },
  {
-  "ship_date": "2026-10-29",
+  "ship_date": "2026-10-31",
   "order_no": "100107",
   "bunno": 1,
   "qty": 60,
   "status": "分"
  },
  {
-  "ship_date": "2026-10-31",
+  "ship_date": "2026-11-02",
   "order_no": "100107",
   "bunno": 2,
   "qty": 30,

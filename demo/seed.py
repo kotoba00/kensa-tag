@@ -1,6 +1,6 @@
 """デモ用の架空データを作る。実在の注文・取引先・人は含まない。
 
-検出4種が1件ずつ以上出る状態を、今日の日付を基準に作り直す。
+検出7種が1件ずつ以上出る状態を、今日の日付を基準に作り直す。
     uv run python demo/seed.py
 """
 
@@ -14,7 +14,9 @@ ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
 from app.db import connect  # noqa: E402
+from app.naishoku import add  # noqa: E402
 from app.service import handle_scan  # noqa: E402
+from app.source import JsonSource  # noqa: E402
 
 DATA = ROOT / "demo" / "data"
 CARD = "04A1B2C3D4E5{:02X}"
@@ -32,6 +34,10 @@ def build(today: date) -> dict[str, list[dict]]:
         ("100107", "DEMO-G70", "顧客A", 100, -4, True, False),   # 分納の合計が合わない
         ("100108", "DEMO-H80", "顧客B", 250, 7, False, False),   # 実演用。まだ何も読んでいない
         ("100109", "DEMO-J90", "顧客C", 180, 10, False, False),  # 実演用
+        ("100110", "DEMO-K11", "顧客A", 600, 3, False, False),   # 内職さんの納期を過ぎても戻らない
+        ("100111", "DEMO-L12", "顧客B", 400, 8, False, False),   # 内職さんの所で順調
+        ("100112", "DEMO-M13", "顧客C", 300, 6, False, False),   # 渡したのに内職依頼が無い
+        ("100113", "DEMO-N14", "顧客A", 500, 5, False, False),   # 依頼の分納番号が書き写し違い
         ("9900001", "DEMO-Z99", "自社", 0, None, False, True),   # 在庫向け。検出しない
     ]
     return {
@@ -52,7 +58,12 @@ def build(today: date) -> dict[str, list[dict]]:
         "lots.json": [
             {"order_no": "100106", "bunno": 1, "produced": 250},
             {"order_no": "100101", "bunno": 1, "produced": 300},
+            {"order_no": "100110", "bunno": 1, "produced": 600},
+            {"order_no": "100111", "bunno": 1, "produced": 240},
+            {"order_no": "100111", "bunno": 2, "produced": 160},
         ],
+        # 内職さんの呼び名。本番は AppSheet のグループ
+        "workers.json": ["内職A", "内職B", "内職C"],
     }
 
 
@@ -66,7 +77,7 @@ def seed(db_path: Path, today: date) -> None:
     conn = connect(db_path)
     counter = 0
 
-    def scan(raw: str, process: str, days_ago: int, hour: int) -> None:
+    def scan(raw: str, process: str, days_ago: int, hour: int) -> None:  # noqa: E306
         nonlocal counter
         counter += 1
         at = datetime.combine(today - timedelta(days=days_ago), time(hour)).astimezone()
@@ -94,6 +105,33 @@ def seed(db_path: Path, today: date) -> None:
     scan(bind("100103", 8, 2), "elevator", 2, 11)
     # 紐付けただけで、分納番号がまだ無いもの
     bind("100103", 9, 0)
+
+    # 社外検査。(注文番号, カード, 紐付け, 社外検査に渡した何日前, 納品の何日前)
+    outs = [
+        ("100110", 10, 9, 6, None),
+        ("100111", 11, 6, 3, None),
+        ("100111", 12, 6, 3, 0),
+        ("100112", 13, 5, 2, None),
+        ("100113", 14, 6, 3, None),
+    ]
+    for order_no, card, bound, handed, returned in outs:
+        uid = bind(order_no, card, bound)
+        scan(uid, "elevator", bound, 11)
+        scan(uid, "inspection", bound - 1, 15)
+        scan(uid, "homework", handed, 10)
+        if returned is not None:
+            scan(uid, "homework", returned, 9)
+    source = JsonSource(DATA)
+    asked = lambda no, bunno, worker, days_ago, due, qty: add(  # noqa: E731
+        conn, source, order_no=no, bunno=bunno, worker=worker, qty=qty,
+        due_date=today + timedelta(days=due),
+        now=datetime.combine(today - timedelta(days=days_ago), time(10, 30)).astimezone(),
+    )
+    asked("100110", 1, "内職A", 6, -2, 600)
+    asked("100111", 1, "内職B", 3, 2, 240)
+    asked("100111", 2, "内職B", 3, 2, 160)
+    # カードは分納1なのに、依頼は分納2で入っている
+    asked("100113", 2, "内職C", 3, 3, None)
     conn.close()
 
 

@@ -5,6 +5,7 @@ from datetime import date, datetime
 
 from .detect import close_shipped
 from .flow import flow
+from .naishoku import requests
 from .source import ProductionSource
 
 
@@ -140,6 +141,7 @@ def board(conn: sqlite3.Connection, source: ProductionSource, today: date, anoma
     orders = {o.order_no: o for o in source.orders()}
     produced = _produced(source)
     priority = {i["anomaly_id"]: i for i in (triage or {}).get("items", [])}
+    asked = requests(conn)
     # 同じ注文と分納に付いた検出と、Claude の見立て
     found: dict[tuple[str, int | None], list[dict]] = {}
     for a in anomalies:
@@ -160,6 +162,7 @@ def board(conn: sqlite3.Connection, source: ProductionSource, today: date, anoma
         else:
             level = "ok"
         read_at = last["read_at"] if last else b["started_at"]
+        req = asked.get((b["order_no"], b["bunno"]))
         out.append(
             {
                 "id": b["id"],
@@ -175,6 +178,9 @@ def board(conn: sqlite3.Connection, source: ProductionSource, today: date, anoma
                 "qty": produced.get((b["order_no"], b["bunno"])),
                 "level": level,
                 "notes": notes,
+                # 内職依頼。社外検査の区画を内職さんごとに分けるのに使う
+                "worker": req["worker"] if req else None,
+                "worker_due": req["due_date"] if req else None,
             }
         )
     return out
