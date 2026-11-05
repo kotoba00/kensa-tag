@@ -128,7 +128,7 @@ cd firmware && pio run -e atoms3r-wifi -t upload
 
 `demo/data/` は架空のデータです。実在の注文・取引先・人は含みません。`demo/record-sheets.pdf` は実演用の架空の生産指示記録票（右上の QR は 20mm 角）で、`demo/record_sheet.py` で作り直せます。
 
-`demo/data/workers.json` は内職さんの呼び名（内職A〜C）です。本番では AppSheet のグループと同じ並びにします。
+`demo/data/workers.json` は内職さんの呼び名（検査A〜C）です。本番では AppSheet のグループと同じ並びにします。
 
 本番は同じ形の JSON を別のフォルダーに書き出し、`SOURCE_DIR` で指定します。保存先は `DB_PATH` で変えられます。生産管理データは読むだけで、書き込みません。
 

@@ -538,8 +538,8 @@ def test_naishoku_overdue_and_return_restarts_stagnant(conn):
     scan = Scanner(conn)
     _out(scan, CARD_A, T0)
     src = FakeSource(o=[Order("100001", "X", "顧客", 10, None, False)])
-    src.workers = lambda: ["内職A"]
-    add(conn, src, order_no="100001", bunno=1, worker="内職A", due_date=TODAY + timedelta(days=2), qty=10)
+    src.workers = lambda: ["検査A"]
+    add(conn, src, order_no="100001", bunno=1, worker="検査A", due_date=TODAY + timedelta(days=2), qty=10)
     late = TODAY + timedelta(days=5)
     kinds = [a.kind for a in detect(conn, src, late)]
     assert "overdue_return" in kinds and "stagnant" not in kinds
@@ -557,7 +557,7 @@ def test_request_without_scan_points_to_other_bunno(conn):
     scan = Scanner(conn)
     _out(scan, CARD_A, T0)
     src = FakeSource(o=[Order("100001", "X", "顧客", 10, None, False)])
-    src.workers = lambda: ["内職A"]
-    add(conn, src, order_no="100001", bunno=2, worker="内職A", due_date=None, qty=None)
+    src.workers = lambda: ["検査A"]
+    add(conn, src, order_no="100001", bunno=2, worker="検査A", due_date=None, qty=None)
     found = [a for a in detect(conn, src, TODAY + timedelta(days=1)) if a.kind == "request_unscanned"]
     assert found[0].bunno == 2 and found[0].evidence["same_order_out"] == [1]

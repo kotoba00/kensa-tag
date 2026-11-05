@@ -30,16 +30,16 @@ def test_demo_data_shows_all_kinds(client):
 
 def test_naishoku_pending_then_request_moves_worker(client):
     data = client.get("/api/naishoku").json()
-    assert data["workers"] == ["内職A", "内職B", "内職C"]
+    assert data["workers"] == ["検査A", "検査B", "検査C"]
     assert [(p["order_no"], p["bunno"]) for p in data["pending"]] == [("100112", 1), ("100113", 1)]
 
-    body = {"order_no": "100112", "bunno": 1, "worker": "内職B", "due_date": "2099-01-01", "qty": 300}
+    body = {"order_no": "100112", "bunno": 1, "worker": "検査B", "due_date": "2099-01-01", "qty": 300}
     assert client.post("/api/naishoku", json=body).status_code == 201
     assert client.post("/api/naishoku", json=body).status_code == 409
     assert [p["order_no"] for p in client.get("/api/naishoku").json()["pending"]] == ["100113"]
 
     item = next(i for i in client.get("/api/board").json()["items"] if i["order_no"] == "100112")
-    assert (item["worker"], item["worker_due"]) == ("内職B", "2099-01-01")
+    assert (item["worker"], item["worker_due"]) == ("検査B", "2099-01-01")
     kinds = {a["id"] for a in client.get("/api/anomalies").json()["items"]}
     assert "unrequested:100112:1" not in kinds
 

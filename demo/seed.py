@@ -63,7 +63,7 @@ def build(today: date) -> dict[str, list[dict]]:
             {"order_no": "100111", "bunno": 2, "produced": 160},
         ],
         # 内職さんの呼び名。本番は AppSheet のグループ
-        "workers.json": ["内職A", "内職B", "内職C"],
+        "workers.json": ["検査A", "検査B", "検査C"],
     }
 
 
@@ -127,11 +127,11 @@ def seed(db_path: Path, today: date) -> None:
         due_date=today + timedelta(days=due),
         now=datetime.combine(today - timedelta(days=days_ago), time(10, 30)).astimezone(),
     )
-    asked("100110", 1, "内職A", 6, -2, 600)
-    asked("100111", 1, "内職B", 3, 2, 240)
-    asked("100111", 2, "内職B", 3, 2, 160)
+    asked("100110", 1, "検査A", 6, -2, 600)
+    asked("100111", 1, "検査B", 3, 2, 240)
+    asked("100111", 2, "検査B", 3, 2, 160)
     # カードは分納1なのに、依頼は分納2で入っている
-    asked("100113", 2, "内職C", 3, 3, None)
+    asked("100113", 2, "検査C", 3, 3, None)
     conn.close()
 
 
