@@ -22,7 +22,8 @@ GOTHIC = "HeiseiKakuGo-W5"
 MINCHO = "HeiseiMin-W3"
 W, H = A4[0], A4[1] / 2  # A5 横長
 M = 10 * mm
-PROCESSES = ["裁断", "プレス", "仕上げ", "内職検査", "検査", "包装"]
+# 裁断は紙だけ。エレベーターは運ぶだけなので書く欄は無い
+PROCESSES = ["裁断", "プレス", "仕上", "社内検査", "社外検査", "出荷検査", "包装"]
 
 
 def draw_qr(c: canvas.Canvas, text: str, x: float, y: float) -> None:
@@ -127,10 +128,11 @@ def sheet(c: canvas.Canvas, order: dict, i: int, oy: float, issued: date) -> Non
     widths = [22 * mm, 22 * mm, 22 * mm, 26 * mm, 22 * mm]
     widths.append(full - sum(widths))
     rows = [["工程", "日付", "担当", "良品数", "不良数", "備考"]] + [[p, "", "", "", "", ""] for p in PROCESSES]
-    y = grid(c, M, y, widths, rows, 6.2 * mm, header=True)
+    # 7工程と確認印が A5 に収まる高さ
+    y = grid(c, M, y, widths, rows, 5.6 * mm, header=True)
 
     # 確認印
-    stamp = 18 * mm
+    stamp = 16 * mm
     sx = right - 3 * stamp
     grid(c, sx, y - 4 * mm, [stamp] * 3, [["作成", "検査", "承認"]], 5 * mm, header=True)
     for k in range(3):
