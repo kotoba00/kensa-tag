@@ -5,8 +5,10 @@ action の意味:
   assign 分納番号を振る
   record 読んだことを記録する
 phases は point（1回読むだけ）か start と end（開始と終了）。
-checkpoint は「いま何があるか」を見張る工程で、Claude に渡す検出の基準になる。
+checkpoint は社内の検査。社外の検査（outsource）と並行で、どちらかが終われば「検査が終わった」とみなす。
+これが Claude に渡す検出の基準になる。
 outsource は内職さんに渡す工程。開始で渡し、納品で終了する。誰に渡したかは内職依頼に入る。
+release はカードを外す工程。ここを終了したら紐付けを閉じ、カードを使い回せるようにする。
 zone と map は工場図の画面で使う。zone は [左, 上, 幅, 高さ]、map の大きさの中で決める。
 """
 
@@ -36,6 +38,7 @@ class Flow:
     checkpoint: str
     map: dict | None = None
     outsource: str | None = None
+    release: str | None = None
 
     def get(self, code: str) -> Process | None:
         return next((p for p in self.processes if p.code == code), None)
@@ -43,6 +46,15 @@ class Flow:
     @property
     def checkpoint_name(self) -> str:
         return self.get(self.checkpoint).name
+
+    def inspected(self, alias: str = "r") -> tuple[str, tuple[str, ...]]:
+        """検査が終わった読み取りの条件。社内検査の終了（1回だけの工程ならその読み取り）か、社外検査の終了（納品）。"""
+        sql = f"({alias}.process = ? AND {alias}.phase IN ('point', 'end'))"
+        params = (self.checkpoint,)
+        if self.outsource:
+            sql = f"({sql} OR ({alias}.process = ? AND {alias}.phase = 'end'))"
+            params += (self.outsource,)
+        return sql, params
 
     def place(self, code: str, phase: str) -> str:
         process = self.get(code)
@@ -64,4 +76,5 @@ def flow() -> Flow:
         checkpoint=raw["checkpoint"],
         map=raw.get("map"),
         outsource=raw.get("outsource"),
+        release=raw.get("release"),
     )

@@ -75,13 +75,14 @@ def seed(db_path: Path, today: date) -> None:
     if db_path.exists():
         db_path.unlink()
     conn = connect(db_path)
+    source = JsonSource(DATA)
     counter = 0
 
     def scan(raw: str, process: str, days_ago: int, hour: int) -> None:  # noqa: E306
         nonlocal counter
         counter += 1
         at = datetime.combine(today - timedelta(days=days_ago), time(hour)).astimezone()
-        handle_scan(conn, event_id=f"seed-{counter}", raw=raw, device_id=f"demo-{process}", read_at=at, process=process)
+        handle_scan(conn, event_id=f"seed-{counter}", raw=raw, device_id=f"demo-{process}", read_at=at, process=process, source=source)
 
     def bind(order_no: str, card: int, days_ago: int) -> str:
         uid = CARD.format(card)
@@ -89,7 +90,7 @@ def seed(db_path: Path, today: date) -> None:
         scan(uid, "press", days_ago, 9)
         return uid
 
-    # (注文番号, カード, 紐付けの何日前, 社内検査に入った何日前)
+    # (注文番号, カード, 紐付けの何日前, 社内検査をした何日前)
     flows = [
         ("100101", 1, 8, 6),
         ("100102", 2, 7, 4),
@@ -100,6 +101,8 @@ def seed(db_path: Path, today: date) -> None:
     for order_no, card, bound, arrived in flows:
         uid = bind(order_no, card, bound)
         scan(uid, "elevator", bound, 11)
+        # 社内検査は開始と終了でかざす
+        scan(uid, "inspection", arrived, 13)
         scan(uid, "inspection", arrived, 15)
     # エレベーターを通って、まだ社内検査に戻っていないもの
     scan(bind("100103", 8, 2), "elevator", 2, 11)
@@ -116,12 +119,11 @@ def seed(db_path: Path, today: date) -> None:
     ]
     for order_no, card, bound, handed, returned in outs:
         uid = bind(order_no, card, bound)
+        # 社外検査は社内検査と並行。社内検査は通らない
         scan(uid, "elevator", bound, 11)
-        scan(uid, "inspection", bound - 1, 15)
         scan(uid, "homework", handed, 10)
         if returned is not None:
             scan(uid, "homework", returned, 9)
-    source = JsonSource(DATA)
     asked = lambda no, bunno, worker, days_ago, due, qty: add(  # noqa: E731
         conn, source, order_no=no, bunno=bunno, worker=worker, qty=qty,
         due_date=today + timedelta(days=due),

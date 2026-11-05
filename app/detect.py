@@ -45,28 +45,17 @@ def close_shipped(conn: sqlite3.Connection, shipments: list[Shipment]) -> int:
     return closed
 
 
-def _arrivals(conn: sqlite3.Connection) -> dict[tuple[str, int], str]:
+def _inspected(conn: sqlite3.Connection) -> dict[tuple[str, int], str]:
+    """検査（社内か社外）が初めて終わった時刻。"""
+    cond, params = flow().inspected()
     rows = conn.execute(
-        """SELECT b.order_no, b.bunno, MIN(r.read_at) AS first_read
-           FROM reads r JOIN bindings b ON b.id = r.binding_id
-           WHERE r.process = ? AND r.outcome = 'recorded'
-           GROUP BY b.order_no, b.bunno""",
-        (flow().checkpoint,),
+        f"""SELECT b.order_no, b.bunno, MIN(r.read_at) AS done_at
+            FROM reads r JOIN bindings b ON b.id = r.binding_id
+            WHERE {cond} AND r.outcome = 'recorded'
+            GROUP BY b.order_no, b.bunno""",
+        params,
     ).fetchall()
-    return {(r["order_no"], r["bunno"]): r["first_read"] for r in rows}
-
-
-def _returns(conn: sqlite3.Connection) -> dict[tuple[str, int], str]:
-    if not flow().outsource:
-        return {}
-    rows = conn.execute(
-        """SELECT b.order_no, b.bunno, MAX(r.read_at) AS returned_at
-           FROM reads r JOIN bindings b ON b.id = r.binding_id
-           WHERE r.process = ? AND r.phase = 'end' AND r.outcome = 'recorded'
-           GROUP BY b.order_no, b.bunno""",
-        (flow().outsource,),
-    ).fetchall()
-    return {(r["order_no"], r["bunno"]): r["returned_at"] for r in rows}
+    return {(r["order_no"], r["bunno"]): r["done_at"] for r in rows}
 
 
 def _who(order_no: str, bunno: int | None) -> str:
@@ -82,17 +71,17 @@ def detect(conn: sqlite3.Connection, source: ProductionSource, today: date) -> l
     orders = {o.order_no: o for o in source.orders()}
     shipments = source.shipments()
     close_shipped(conn, shipments)
-    arrivals = _arrivals(conn)
+    inspected = _inspected(conn)
     found: list[Anomaly] = []
-    found += _forgotten(conn, shipments, arrivals, orders)
-    found += _stagnant(conn, shipments, arrivals, orders, today)
+    found += _forgotten(conn, shipments, inspected, orders)
+    found += _stagnant(conn, shipments, orders, today)
     found += _qty_mismatch(source, shipments)
     found += _bunno_total(shipments, orders)
     found += _naishoku(conn, orders, today)
     return found
 
 
-def _forgotten(conn, shipments, arrivals, orders) -> list[Anomaly]:
+def _forgotten(conn, shipments, inspected, orders) -> list[Anomaly]:
     start = _tracking_start(conn)
     if start is None:
         return []
@@ -103,7 +92,7 @@ def _forgotten(conn, shipments, arrivals, orders) -> list[Anomaly]:
         if s.ship_date < start or s.qty <= 0 or s.status == "返品" or s.bunno is None:
             continue
         key = (s.order_no, s.bunno)
-        if key in arrivals or key in seen:
+        if key in inspected or key in seen:
             continue
         seen.add(key)
         order = orders.get(s.order_no)
@@ -113,7 +102,7 @@ def _forgotten(conn, shipments, arrivals, orders) -> list[Anomaly]:
                 kind="forgotten",
                 order_no=s.order_no,
                 bunno=s.bunno,
-                title=f"{_who(s.order_no, s.bunno)}は出荷データに載っていますが、{flow().checkpoint_name}で読まれていません。",
+                title=f"{_who(s.order_no, s.bunno)}は出荷データに載っていますが、検査（社内か社外）の終了が記録されていません。",
                 evidence={
                     "ship_date": s.ship_date.isoformat(),
                     "qty": s.qty,
@@ -125,31 +114,40 @@ def _forgotten(conn, shipments, arrivals, orders) -> list[Anomaly]:
     return out
 
 
-def _stagnant(conn, shipments, arrivals, orders, today) -> list[Anomaly]:
+def _stagnant(conn, shipments, orders, today) -> list[Anomaly]:
+    """検査が終わったのに、次の工程（出荷検査）に進まないもの。"""
     shipped = {(s.order_no, s.bunno) for s in shipments if s.qty > 0}
-    # 内職さんの所にあるものは、内職さんへの納期で見る
-    away = {(r["order_no"], r["bunno"]) for r in out_now(conn) if r["phase"] == "start"}
-    returned = _returns(conn)
+    cond, params = flow().inspected("r")
+    # 最後に読んだのが検査の終わりのまま、という分納
+    rows = conn.execute(
+        f"""SELECT b.order_no, b.bunno, r.process, r.read_at
+            FROM bindings b
+            JOIN reads r ON r.id = (SELECT id FROM reads WHERE binding_id = b.id AND outcome = 'recorded'
+                                    ORDER BY read_at DESC, id DESC LIMIT 1)
+            WHERE b.ended_at IS NULL AND b.bunno IS NOT NULL AND {cond}""",
+        params,
+    ).fetchall()
     out = []
-    for (order_no, bunno), first_read in arrivals.items():
+    for r in rows:
+        order_no, bunno = r["order_no"], r["bunno"]
         order = orders.get(order_no)
-        if (order_no, bunno) in shipped or (order_no, bunno) in away or (order and order.stock):
+        if (order_no, bunno) in shipped or (order and order.stock):
             continue
-        # 内職さんから納品されたものは、納品の日から数え直す
-        since = max(first_read, returned.get((order_no, bunno), first_read))
-        days = (today - datetime.fromisoformat(since).astimezone().date()).days
+        days = (today - datetime.fromisoformat(r["read_at"]).astimezone().date()).days
         if days < STAGNANT_DAYS:
             continue
         due = order.due_date if order else None
+        where = flow().get(r["process"]).name
         out.append(
             Anomaly(
                 id=f"stagnant:{order_no}:{bunno}",
                 kind="stagnant",
                 order_no=order_no,
                 bunno=bunno,
-                title=f"{_who(order_no, bunno)}が、{flow().checkpoint_name}で読まれてから{days}日経っていますが、出荷データに載っていません。",
+                title=f"{_who(order_no, bunno)}は{where}が終わってから{days}日経ちますが、出荷検査が始まっていません。",
                 evidence={
-                    "arrived_at": first_read,
+                    "inspected_at": r["read_at"],
+                    "inspected_by": where,
                     "days": days,
                     "due_date": due.isoformat() if due else None,
                     "days_to_due": (due - today).days if due else None,

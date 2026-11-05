@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 
 from .flow import PHASE_LABEL, Process, flow
 from .scan import classify
+from .source import ProductionSource
 
 PENDING_TTL = timedelta(seconds=60)
 DEBOUNCE = timedelta(seconds=10)
@@ -34,6 +35,7 @@ def handle_scan(
     read_at: datetime,
     process: str,
     phase: str = POINT,
+    source: ProductionSource | None = None,
 ) -> ScanResult:
     with conn:
         stored = conn.execute(
@@ -52,7 +54,7 @@ def handle_scan(
         elif kind == "order":
             result = _on_order(conn, proc, device_id, value, read_at)
         elif kind in ("ntag", "uhf", "hf"):
-            result, binding_id = _on_tag(conn, proc, phase, device_id, value, read_at, toggle)
+            result, binding_id = _on_tag(conn, proc, phase, device_id, value, read_at, toggle, source)
         else:
             result = ScanResult("unknown", f"読み取れない形式です: {value}")
 
@@ -61,6 +63,13 @@ def handle_scan(
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (event_id, read_at.isoformat(), process, result.phase or phase, device_id, kind, value, binding_id, result.outcome),
         )
+        if result.outcome == "recorded" and result.phase == "end" and process == flow().release:
+            # 包装が終わったらカードは箱に入らず手元に戻る。出荷データを待たずに外す
+            conn.execute(
+                "UPDATE bindings SET ended_at = ?, end_reason = 'released' WHERE id = ? AND ended_at IS NULL",
+                (read_at.isoformat(), binding_id),
+            )
+            result.message += "。カードは外して使い回せます"
     return result
 
 
@@ -91,7 +100,7 @@ def _two_way(proc: Process) -> bool:
     return set(proc.phases) == {"start", "end"}
 
 
-def _on_tag(conn, proc: Process, phase, device_id, uid, read_at, toggle=False):
+def _on_tag(conn, proc: Process, phase, device_id, uid, read_at, toggle=False, source=None):
     if proc.action == "bind":
         order_no = _take_pending(conn, device_id, read_at)
         if order_no:
@@ -122,7 +131,7 @@ def _on_tag(conn, proc: Process, phase, device_id, uid, read_at, toggle=False):
     if proc.action == "bind":
         return ScanResult("already_bound", "紐付け済みです", **common), binding["id"]
     if proc.action == "assign":
-        return _assign(conn, binding), binding["id"]
+        return _assign(conn, binding, read_at, source), binding["id"]
     if any(h["outcome"] == "recorded" for h in history):
         return ScanResult("already_recorded", f"{_label(proc, phase)}は記録済みです", **common), binding["id"]
     return ScanResult("recorded", _recorded_message(proc, phase), **common), binding["id"]
@@ -159,14 +168,22 @@ def _recorded_message(proc: Process, phase) -> str:
     return f"{proc.name}に入りました" if proc.code == flow().checkpoint else f"{proc.name}を通りました"
 
 
-def _assign(conn, binding) -> ScanResult:
+def _assign(conn, binding, read_at: datetime, source: ProductionSource | None = None) -> ScanResult:
     order_no = binding["order_no"]
     if binding["bunno"] is not None:
         return ScanResult("already_assigned", f"分納番号は {binding['bunno']} 番です", order_no=order_no, bunno=binding["bunno"])
     # 閉じた紐付けも数える。番号は使い回さない
-    bunno = conn.execute(
-        "SELECT COALESCE(MAX(bunno), 0) + 1 AS n FROM bindings WHERE order_no = ?", (order_no,)
+    used = conn.execute(
+        "SELECT COALESCE(MAX(bunno), 0) AS n FROM bindings WHERE order_no = ?", (order_no,)
     ).fetchone()["n"]
+    # タグを使う前に出荷した分納の番号も避ける。重なると、振った途端に出荷済みとして閉じてしまう
+    if source is not None:
+        shipped = [
+            s.bunno for s in source.shipments()
+            if s.order_no == order_no and s.bunno is not None and s.ship_date <= read_at.date()
+        ]
+        used = max([used, *shipped])
+    bunno = used + 1
     conn.execute("UPDATE bindings SET bunno = ? WHERE id = ?", (bunno, binding["id"]))
     return ScanResult("assigned", f"分納番号は {bunno} 番です", order_no=order_no, bunno=bunno)
 

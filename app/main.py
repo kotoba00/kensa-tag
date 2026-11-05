@@ -72,6 +72,7 @@ def scan(body: ScanIn, conn: Conn):
         read_at=body.read_time(),
         process=body.process,
         phase=body.phase,
+        source=source,
     )
     return result.__dict__
 

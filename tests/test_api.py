@@ -67,7 +67,7 @@ def test_scan_then_order_detail(client):
     assert send("c", "04FFFFFFFFFFFF", at, "elevator")["bunno"] == 1
     assert send("d", "04FFFFFFFFFFFF", at + timedelta(hours=1), "inspection")["outcome"] == "recorded"
     places = client.get("/api/orders/200001").json()["bunnos"]
-    assert places[0]["place"] == "社内検査"
+    assert places[0]["place"] == "社内検査（開始）"
 
 
 def test_reader_without_clock_sends_age(client):

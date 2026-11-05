@@ -10,13 +10,15 @@ from .source import ProductionSource
 
 
 def _rows(conn: sqlite3.Connection, where: str = "", params: tuple = ()) -> list[sqlite3.Row]:
+    # arrived_at は検査（社内か社外）が初めて終わった時刻
+    cond, cond_params = flow().inspected()
     return conn.execute(
         f"""SELECT b.*,
                    (SELECT MIN(r.read_at) FROM reads r
-                     WHERE r.binding_id = b.id AND r.process = ?
+                     WHERE r.binding_id = b.id AND {cond}
                        AND r.outcome = 'recorded') AS arrived_at
             FROM bindings b {where}""",
-        (flow().checkpoint, *params),
+        (*cond_params, *params),
     ).fetchall()
 
 

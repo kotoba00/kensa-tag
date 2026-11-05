@@ -62,6 +62,10 @@ class Scanner:
         return self(card, at, process="elevator")
 
     def inspection(self, card=CARD_A, at=T0):
+        """社内検査を開始して、30分後に終了する。終了の結果を返す。"""
+        first = self(card, at - timedelta(minutes=30), process="inspection")
+        if first.outcome != "recorded":
+            return first
         return self(card, at, process="inspection")
 
 
@@ -173,9 +177,8 @@ def test_read_twice_debounces_and_no_new_number(conn):
     s.bind()
     s.elevator()
     at = T0 + timedelta(hours=1)
-    assert s.inspection(at=at).outcome == "recorded"
-    assert s.inspection(at=at + timedelta(seconds=2)).outcome == "debounced"
-    assert s.inspection(at=at + timedelta(hours=1)).outcome == "already_recorded"
+    assert s(CARD_A, at, process="inspection").phase == "start"
+    assert s(CARD_A, at + timedelta(seconds=2), process="inspection").outcome == "debounced"
     assert conn.execute("SELECT COUNT(*) FROM bindings").fetchone()[0] == 1
 
 
@@ -246,7 +249,7 @@ def test_start_and_end_are_recorded_separately(conn):
 def test_unknown_process_is_stored_without_failing(conn):
     s = Scanner(conn)
     assert s(CARD_A, process="nowhere").outcome == "unknown_process"
-    assert s(CARD_A, process="inspection", phase="start").outcome == "unknown_process"
+    assert s(CARD_A, process="elevator", phase="start").outcome == "unknown_process"
     assert conn.execute("SELECT COUNT(*) FROM reads").fetchone()[0] == 2
 
 
@@ -255,17 +258,17 @@ def test_reader_alternates_start_and_end(conn):
     s.bind()
     s.elevator()
     at = T0 + timedelta(hours=1)
-    first = s(CARD_A, at, process="packing")
-    assert (first.outcome, first.phase, first.message) == ("recorded", "start", "包装を開始しました")
+    first = s(CARD_A, at, process="final_check")
+    assert (first.outcome, first.phase, first.message) == ("recorded", "start", "出荷検査を開始しました")
     # 読み取り機の二度読みは終了にしない
-    assert s(CARD_A, at + timedelta(seconds=2), process="packing").outcome == "debounced"
-    assert s(CARD_A, at + timedelta(minutes=30), process="packing").phase == "end"
-    # 間違えて終了にしても、もう一度読めば開始
-    assert s(CARD_A, at + timedelta(minutes=31), process="packing").phase == "start"
-    rows = conn.execute("SELECT phase FROM reads WHERE process='packing' AND outcome='recorded' ORDER BY id").fetchall()
+    assert s(CARD_A, at + timedelta(seconds=2), process="final_check").outcome == "debounced"
+    assert s(CARD_A, at + timedelta(minutes=30), process="final_check").phase == "end"
+    # 間違えて終了にしても、もう一度読めば開始（包装だけは終了でカードを外す）
+    assert s(CARD_A, at + timedelta(minutes=31), process="final_check").phase == "start"
+    rows = conn.execute("SELECT phase FROM reads WHERE process='final_check' AND outcome='recorded' ORDER BY id").fetchall()
     assert [r["phase"] for r in rows] == ["start", "end", "start"]
     src = FakeSource(o=[order()])
-    assert order_detail(conn, src, "100001")["bunnos"][0]["place"] == "包装（開始）"
+    assert order_detail(conn, src, "100001")["bunnos"][0]["place"] == "出荷検査（開始）"
     # 別の工程は別に数える
     assert s(CARD_A, at + timedelta(minutes=32), process="finishing").phase == "start"
 
@@ -370,7 +373,7 @@ def test_order_detail_places(conn):
     s.bind("100001", CARD_C, T0 + timedelta(hours=4))
     src = FakeSource(o=[order()], s=[Shipment(TODAY, "100001", 3, 10, "分")])
     places = {b["bunno"]: b["place"] for b in order_detail(conn, src, "100001")["bunnos"]}
-    assert places == {1: "社内検査", 2: "エレベーター", 3: "出荷済み", None: "プレス"}
+    assert places == {1: "社内検査（終了）", 2: "エレベーター", 3: "出荷済み", None: "プレス"}
 
 
 def test_quantity_stays_undecided_until_daily_report(conn):
@@ -395,7 +398,7 @@ def test_inspection_without_elevator_is_recorded_without_number(conn):
 def test_anomaly_is_a_japanese_sentence(conn):
     arrive(Scanner(conn), days_ago=5)
     found = detect(conn, FakeSource(o=[order()]), TODAY)
-    assert found[0].title == "注文100001の分納1が、社内検査で読まれてから5日経っていますが、出荷データに載っていません。"
+    assert found[0].title == "注文100001の分納1は社内検査が終わってから5日経ちますが、出荷検査が始まっていません。"
 
 
 class FakeClient:
@@ -561,3 +564,29 @@ def test_request_without_scan_points_to_other_bunno(conn):
     add(conn, src, order_no="100001", bunno=2, worker="検査A", due_date=None, qty=None)
     found = [a for a in detect(conn, src, TODAY + timedelta(days=1)) if a.kind == "request_unscanned"]
     assert found[0].bunno == 2 and found[0].evidence["same_order_out"] == [1]
+
+
+def test_packing_end_releases_card_for_reuse(conn):
+    scan = Scanner(conn)
+    scan.bind("100001", CARD_A, T0)
+    scan(CARD_A, T0 + timedelta(minutes=1), process="elevator")
+    scan(CARD_A, T0 + timedelta(hours=1), process="inspection")
+    assert scan(CARD_A, T0 + timedelta(hours=2), process="packing").phase == "start"
+    done = scan(CARD_A, T0 + timedelta(hours=3), process="packing")
+    assert done.phase == "end" and "使い回せます" in done.message
+    assert conn.execute("SELECT end_reason FROM bindings").fetchone()["end_reason"] == "released"
+    # 外したカードは別の注文にすぐ付けられる。出荷待ちは滞留に数えない
+    assert scan.bind("100002", CARD_A, T0 + timedelta(hours=4)).outcome == "bound"
+    src = FakeSource(o=[Order("100001", "X", "顧客", 10, None, False)])
+    assert not [a for a in detect(conn, src, TODAY + timedelta(days=5)) if a.kind == "stagnant"]
+
+
+def test_bunno_skips_numbers_already_shipped(conn):
+    src = FakeSource(s=[Shipment(TODAY, "100001", 2, 10, "分")])
+    scan = Scanner(conn)
+    scan.bind("100001", CARD_A, T0)
+    got = handle_scan(conn, event_id="ev", raw=CARD_A, device_id="d1", read_at=T0 + timedelta(minutes=1),
+                      process="elevator", source=src)
+    assert got.bunno == 3
+    close_shipped(conn, src.shipments())
+    assert conn.execute("SELECT ended_at FROM bindings").fetchone()["ended_at"] is None
