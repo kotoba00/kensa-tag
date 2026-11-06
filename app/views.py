@@ -183,6 +183,8 @@ def board(conn: sqlite3.Connection, source: ProductionSource, today: date, anoma
                 # 内職依頼。社外検査の区画を内職さんごとに分けるのに使う
                 "worker": req["worker"] if req else None,
                 "worker_due": req["due_date"] if req else None,
+                "worker_progress": req["progress"] if req else None,
+                "worker_progress_at": req["progress_at"] if req else None,
             }
         )
     return out

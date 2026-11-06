@@ -554,6 +554,24 @@ def test_naishoku_overdue_and_return_restarts_stagnant(conn):
     assert "stagnant" in [a.kind for a in detect(conn, src, late + timedelta(days=3))]
 
 
+def test_finished_turns_overdue_into_pickup_waiting(conn):
+    from app.naishoku import add, set_progress
+
+    scan = Scanner(conn)
+    _out(scan, CARD_A, T0)
+    src = FakeSource(o=[Order("100001", "X", "顧客", 10, None, False)])
+    src.workers = lambda: ["検査A"]
+    add(conn, src, order_no="100001", bunno=1, worker="検査A", due_date=TODAY + timedelta(days=2), qty=10)
+    set_progress(conn, "検査A", "100001", 1, "ちぎり済", now=datetime.combine(TODAY, T0.timetz()))
+    assert "overdue_return" in [a.kind for a in detect(conn, src, TODAY + timedelta(days=3))]
+    set_progress(conn, "検査A", "100001", 1, "検査済", now=datetime.combine(TODAY + timedelta(days=1), T0.timetz()))
+    # 検査済の翌日はまだ待つ。2日経ったら引き取りの遅れとして拾う
+    kinds = [a.kind for a in detect(conn, src, TODAY + timedelta(days=2))]
+    assert "pickup_waiting" not in kinds
+    kinds = [a.kind for a in detect(conn, src, TODAY + timedelta(days=3))]
+    assert "pickup_waiting" in kinds and "overdue_return" not in kinds
+
+
 def test_request_without_scan_points_to_other_bunno(conn):
     from app.naishoku import add
 

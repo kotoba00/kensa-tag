@@ -14,7 +14,7 @@ from .auto_triage import AutoTriage
 from .db import connect
 from .detect import detect
 from .flow import flow
-from .naishoku import NaishokuError, add, pending
+from .naishoku import PROGRESS, NaishokuError, add, pending, set_progress, worker_items, worker_key, worker_of
 from .service import POINT, handle_scan
 from .source import JsonSource
 from .triage import TriageUnavailable, latest_report, run_triage, save_report, signature
@@ -122,7 +122,13 @@ class NaishokuIn(BaseModel):
 
 @app.get("/api/naishoku")
 def naishoku(conn: Conn):
-    return {"workers": source.workers(), "pending": pending(conn, source)}
+    workers = source.workers()
+    return {
+        "workers": workers,
+        "pending": pending(conn, source),
+        # 内職さんに渡す専用ページ。社内の画面にだけ出す
+        "links": {w: f"/w/{worker_key(conn, w)}" for w in workers},
+    }
 
 
 @app.post("/api/naishoku", status_code=201)
@@ -131,6 +137,35 @@ def naishoku_add(body: NaishokuIn, conn: Conn):
         return add(conn, source, **body.model_dump())
     except NaishokuError as e:
         raise HTTPException(409, str(e)) from e
+
+
+def _worker(conn: sqlite3.Connection, key: str) -> str:
+    worker = worker_of(conn, key)
+    if worker is None or worker not in source.workers():
+        raise HTTPException(404, "このページは使えません。事務所に新しい URL をもらってください")
+    return worker
+
+
+@app.get("/api/w/{key}")
+def worker_page_data(key: str, conn: Conn):
+    worker = _worker(conn, key)
+    return {"worker": worker, "progress": PROGRESS, "items": worker_items(conn, source, worker, date.today())}
+
+
+class ProgressIn(BaseModel):
+    order_no: str
+    bunno: int
+    progress: str
+
+
+@app.post("/api/w/{key}/progress")
+def worker_progress(key: str, body: ProgressIn, conn: Conn):
+    worker = _worker(conn, key)
+    try:
+        set_progress(conn, worker, body.order_no, body.bunno, body.progress)
+    except NaishokuError as e:
+        raise HTTPException(409, str(e)) from e
+    return {"worker": worker, "progress": PROGRESS, "items": worker_items(conn, source, worker, date.today())}
 
 
 @app.get("/api/tags/{raw}")
@@ -190,6 +225,12 @@ def board_page():
 def naishoku_page():
     # 内職さんに渡すときの入力。本番の AppSheet のフォームと同じ動きをまねる
     return FileResponse(STATIC / "naishoku.html")
+
+
+@app.get("/w/{key}")
+def worker_page(key: str):
+    # 内職さん本人のスマホで開く専用ページ。鍵の確かめは /api/w で行う
+    return FileResponse(STATIC / "worker.html")
 
 
 @app.get("/t/{uid}")

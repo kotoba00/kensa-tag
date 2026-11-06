@@ -1,6 +1,6 @@
 """デモ用の架空データを作る。実在の注文・取引先・人は含まない。
 
-検出7種が1件ずつ以上出る状態を、今日の日付を基準に作り直す。
+検出8種が1件ずつ以上出る状態を、今日の日付を基準に作り直す。
     uv run python demo/seed.py
 """
 
@@ -14,7 +14,7 @@ ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
 from app.db import connect  # noqa: E402
-from app.naishoku import add  # noqa: E402
+from app.naishoku import add, set_progress, worker_key  # noqa: E402
 from app.service import handle_scan  # noqa: E402
 from app.source import JsonSource  # noqa: E402
 
@@ -35,7 +35,7 @@ def build(today: date) -> dict[str, list[dict]]:
         ("100108", "DEMO-H80", "顧客B", 250, 7, False, False),   # 実演用。まだ何も読んでいない
         ("100109", "DEMO-J90", "顧客C", 180, 10, False, False),  # 実演用
         ("100110", "DEMO-K11", "顧客A", 600, 3, False, False),   # 内職さんの納期を過ぎても戻らない
-        ("100111", "DEMO-L12", "顧客B", 400, 8, False, False),   # 内職さんの所で順調
+        ("100111", "DEMO-L12", "顧客B", 400, 8, False, False),   # 内職さんは終えたのに引き取っていない
         ("100112", "DEMO-M13", "顧客C", 300, 6, False, False),   # 渡したのに内職依頼が無い
         ("100113", "DEMO-N14", "顧客A", 500, 5, False, False),   # 依頼の分納番号が書き写し違い
         ("9900001", "DEMO-Z99", "自社", 0, None, False, True),   # 在庫向け。検出しない
@@ -67,7 +67,7 @@ def build(today: date) -> dict[str, list[dict]]:
     }
 
 
-def seed(db_path: Path, today: date) -> None:
+def seed(db_path: Path, today: date) -> dict[str, str]:
     DATA.mkdir(parents=True, exist_ok=True)
     for name, rows in build(today).items():
         (DATA / name).write_text(json.dumps(rows, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
@@ -134,10 +134,21 @@ def seed(db_path: Path, today: date) -> None:
     asked("100111", 2, "検査B", 3, 2, 160)
     # カードは分納1なのに、依頼は分納2で入っている
     asked("100113", 2, "検査C", 3, 3, None)
+    # 検査A さんは納期を過ぎたが、ちぎりまでは済んでいる
+    set_progress(conn, "検査A", "100110", 1, "ちぎり済",
+                 now=datetime.combine(today - timedelta(days=1), time(15)).astimezone())
+    # 検査B さんは2日前に検査済にしたのに、まだ引き取っていない
+    set_progress(conn, "検査B", "100111", 1, "検査済",
+                 now=datetime.combine(today - timedelta(days=2), time(16)).astimezone())
+    links = {w: f"/w/{worker_key(conn, w)}" for w in source.workers()}
     conn.close()
+    return links
 
 
 if __name__ == "__main__":
     path = Path(os.environ.get("DB_PATH", ROOT / "data" / "kensa.db"))
-    seed(path, date.today())
+    links = seed(path, date.today())
     print(f"デモデータを作りました: {DATA} / {path}")
+    # 鍵は作り直すたびに変わる
+    for worker, link in links.items():
+        print(f"  {worker}さんの専用ページ: {link}")

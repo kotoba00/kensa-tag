@@ -24,7 +24,7 @@ def test_demo_data_shows_all_kinds(client):
     kinds = {a["kind"] for a in client.get("/api/anomalies").json()["items"]}
     assert kinds == {
         "forgotten", "stagnant", "qty_mismatch", "bunno_total",
-        "unrequested", "overdue_return", "request_unscanned",
+        "unrequested", "overdue_return", "pickup_waiting", "request_unscanned",
     }
 
 
@@ -42,6 +42,40 @@ def test_naishoku_pending_then_request_moves_worker(client):
     assert (item["worker"], item["worker_due"]) == ("検査B", "2099-01-01")
     kinds = {a["id"] for a in client.get("/api/anomalies").json()["items"]}
     assert "unrequested:100112:1" not in kinds
+
+
+def test_worker_page_sets_progress_and_board_follows(client):
+    links = client.get("/api/naishoku").json()["links"]
+    key_a = links["検査A"].split("/")[-1]
+    assert client.get(links["検査A"]).status_code == 200
+    data = client.get(f"/api/w/{key_a}").json()
+    assert data["worker"] == "検査A" and data["progress"] == ["未着手", "ちぎり済", "検査済"]
+    assert [(i["order_no"], i["bunno"], i["progress"]) for i in data["items"]] == [("100110", 1, "ちぎり済")]
+    assert "overdue_return:100110:1" in {a["id"] for a in client.get("/api/anomalies").json()["items"]}
+
+    url = f"/api/w/{key_a}/progress"
+    body = {"order_no": "100110", "bunno": 1, "progress": "検査済"}
+    assert client.post(url, json=body).json()["items"][0]["progress"] == "検査済"
+    item = next(i for i in client.get("/api/board").json()["items"] if i["order_no"] == "100110")
+    assert item["worker_progress"] == "検査済" and item["phase"] == "start"
+    # 検査済なので、内職さんの納期切れではなくなる
+    assert "overdue_return:100110:1" not in {a["id"] for a in client.get("/api/anomalies").json()["items"]}
+
+    # 選び間違いは選び直せる。決まった3つ以外と、ほかの内職さんの分は受け付けない
+    assert client.post(url, json={**body, "progress": "未着手"}).json()["items"][0]["progress"] == "未着手"
+    assert client.post(url, json={**body, "progress": "済"}).status_code == 409
+    key_b = links["検査B"].split("/")[-1]
+    assert client.post(f"/api/w/{key_b}/progress", json=body).status_code == 409
+    assert client.get("/api/w/nokey").status_code == 404
+
+
+def test_worker_page_shows_returned_and_blocks_change(client):
+    key_b = client.get("/api/naishoku").json()["links"]["検査B"].split("/")[-1]
+    items = {(i["order_no"], i["bunno"]): i for i in client.get(f"/api/w/{key_b}").json()["items"]}
+    assert items[("100111", 1)]["progress"] == "検査済" and not items[("100111", 1)]["returned_at"]
+    assert items[("100111", 2)]["returned_at"]
+    body = {"order_no": "100111", "bunno": 2, "progress": "検査済"}
+    assert client.post(f"/api/w/{key_b}/progress", json=body).status_code == 409
 
 
 def test_naishoku_rejects_unknown_worker(client):

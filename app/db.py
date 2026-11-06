@@ -47,7 +47,16 @@ CREATE TABLE IF NOT EXISTS naishoku (
     worker TEXT NOT NULL,
     due_date TEXT,  -- 内職さんへの納期
     created_at TEXT NOT NULL,
+    progress TEXT NOT NULL DEFAULT '未着手',  -- 内職さんが選ぶ進捗。未着手 / ちぎり済 / 検査済
+    progress_at TEXT,  -- 進捗を最後に変えた時刻
     UNIQUE (order_no, bunno)
+);
+
+-- 内職さんの専用ページの鍵。URL に入れて渡し、ログインの代わりにする
+CREATE TABLE IF NOT EXISTS worker_keys (
+    worker TEXT PRIMARY KEY,
+    key TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS triage_runs (
@@ -73,4 +82,7 @@ def connect(path: str | Path) -> sqlite3.Connection:
     columns = {r["name"] for r in conn.execute("PRAGMA table_info(triage_runs)")}
     if "signature" not in columns:
         conn.execute("ALTER TABLE triage_runs ADD COLUMN signature TEXT")
+    if "progress" not in {r["name"] for r in conn.execute("PRAGMA table_info(naishoku)")}:
+        conn.execute("ALTER TABLE naishoku ADD COLUMN progress TEXT NOT NULL DEFAULT '未着手'")
+        conn.execute("ALTER TABLE naishoku ADD COLUMN progress_at TEXT")
     return conn

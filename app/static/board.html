@@ -137,6 +137,9 @@ function fmt(iso) {
   return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
 }
 const label = i => `${i.order_no}-${i.bunno ?? "未"}`;
+// 内職さんが検査済にした分納は、外にあっても ✓ で描く
+const FINISHED = "検査済", HALF = "ちぎり済";
+const shown = i => i.phase === "start" && i.worker_progress === FINISHED ? "end" : i.phase;
 
 function drawMap() {
   const svg = $("map");
@@ -220,8 +223,8 @@ function render() {
   const seen = new Set();
   for (const [code, z] of Object.entries(zones)) {
     const list = (byZone[code] || []).sort((a, b) => a.order_no.localeCompare(b.order_no) || (a.bunno ?? 99) - (b.bunno ?? 99));
-    const working = list.filter(i => i.phase === "start").length;
-    const done = list.filter(i => i.phase === "end").length;
+    const working = list.filter(i => shown(i) === "start").length;
+    const done = list.filter(i => shown(i) === "end").length;
     z.count.textContent = !list.length ? "" : working || done ? `▶${working}  ✓${done}` : `${list.length} 件`;
     const parts = z.sub ? subzones(z, list) : [{ area: z, list, top: TOP }];
     let hidden = 0;
@@ -248,13 +251,13 @@ function render() {
           // 現れるときは少し上から落とす
           g.style.transform = `translate(${pos[0]}px, ${pos[1] - 20}px)`;
           g.classList.add("gone");
-          d = { g, process: i.process, readAt: i.last_read_at, worker: i.worker };
+          d = { g, process: i.process, readAt: i.last_read_at, worker: i.worker, progress: i.worker_progress };
           dots.set(i.id, d);
           requestAnimationFrame(() => requestAnimationFrame(() => g.classList.remove("gone")));
         }
         const g = d.g;
-        const moved = d.process !== i.process || d.readAt !== i.last_read_at || d.worker !== i.worker;
-        const phase = i.phase === "start" || i.phase === "end" ? i.phase : "";
+        const moved = d.process !== i.process || d.readAt !== i.last_read_at || d.worker !== i.worker || d.progress !== i.worker_progress;
+        const phase = shown(i) === "start" || shown(i) === "end" ? shown(i) : "";
         g.setAttribute("class", `dot ${i.level} ${phase} ${fit.cls}${i.id === selected ? " selected" : ""}`);
         // 右上の小さな印。開始は ▶、終了は ✓
         const br = Math.max(7, Math.round(fit.r * 0.42));
@@ -262,7 +265,8 @@ function render() {
         badge.setAttribute("transform", `translate(${Math.round(fit.r * 0.78)}, ${-Math.round(fit.r * 0.78)})`);
         badge.querySelector("circle").setAttribute("r", br);
         badge.querySelector("text").style.fontSize = `${Math.round(br * 1.2)}px`;
-        badge.querySelector("text").textContent = phase === "start" ? "▶" : "✓";
+        // 内職さんの所でちぎりまで済んだものは ◐
+        badge.querySelector("text").textContent = phase === "end" ? "✓" : i.phase === "start" && i.worker_progress === HALF ? "◐" : "▶";
         for (const c of g.querySelectorAll(":scope > circle")) c.setAttribute("r", fit.r);
         g.querySelector(".lbl").setAttribute("y", fit.r + (fit.cls === "big" ? 22 : 15));
         g.querySelector(".lbl").style.display = fit.lbl ? "" : "none";
@@ -276,7 +280,7 @@ function render() {
         g.querySelector(".num").textContent = i.bunno ?? "–";
         g.querySelector(".lbl").textContent = label(i);
         g.setAttribute("aria-label", `注文${i.order_no} 分納${i.bunno ?? "未採番"} ${i.place}`);
-        d.process = i.process; d.readAt = i.last_read_at; d.worker = i.worker;
+        d.process = i.process; d.readAt = i.last_read_at; d.worker = i.worker; d.progress = i.worker_progress;
       });
       if (part.caption) part.caption.textContent = `${part.name}${part.list.length ? `  ${part.list.length}` : ""}${partHidden ? `（ほか ${partHidden}）` : ""}`;
     }
@@ -311,6 +315,7 @@ function showSide(i) {
       <dt>納期</dt><dd>${esc(i.due_date || "-")}</dd>
       <dt>数量</dt><dd>${i.qty ?? "未定"}</dd>
       ${i.worker ? `<dt>内職</dt><dd>${esc(i.worker)}（納期 ${esc(i.worker_due || "-")}）</dd>` : ""}
+      ${i.worker && i.phase === "start" ? `<dt>進捗</dt><dd>${esc(i.worker_progress)}${i.worker_progress_at ? `（${esc(fmt(i.worker_progress_at))}）` : ""}${i.worker_progress === FINISHED ? "。引き取り待ち" : ""}</dd>` : ""}
       <dt>最後に読んだ</dt><dd>${esc(fmt(i.last_read_at))}（${i.days} 日前）</dd>
     </dl>
     ${notes || '<p class="empty">確認が要ることはありません。</p>'}`;

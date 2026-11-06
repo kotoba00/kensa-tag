@@ -49,7 +49,10 @@ footer a { color: var(--accent); }
   <h2>2. さっきかざした分納を選ぶ</h2>
   <div id="list" aria-live="polite"><p class="empty">読み込んでいます…</p></div>
   <p id="msg" role="status"></p>
-  <footer>社外検査の読み取り機でカゴのカードをかざすと、ここに出ます。<a href="/board">工場図へ</a></footer>
+  <footer>社外検査の読み取り機でカゴのカードをかざすと、ここに出ます。<a href="/board">工場図へ</a>
+    <h2>内職さんに渡す専用ページ</h2>
+    <p id="links" class="empty"></p>
+  </footer>
 </main>
 <script>
 const $ = id => document.getElementById(id);
@@ -132,6 +135,8 @@ async function refresh() {
     try { worker = localStorage.getItem("naishoku-worker"); } catch {}
     if (!data.workers.includes(worker)) worker = null;
     drawGroups(data.workers);
+    // 内職さん本人が進捗を選ぶページ。URL がログインの代わりなので社外には貼らない
+    $("links").innerHTML = data.workers.map(w => `<a href="${esc(data.links[w])}">${esc(w)}さん</a>`).join("　");
   }
   const before = pending.map(key).join();
   pending = data.pending;

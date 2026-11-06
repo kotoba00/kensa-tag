@@ -9,17 +9,18 @@ from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, time
 
 from .flow import flow
-from .naishoku import out_now, requests
+from .naishoku import FINISHED, out_now, requests
 from .source import Order, ProductionSource, Shipment
 
 STAGNANT_DAYS = 3
+PICKUP_DAYS = 2  # 内職さんが終わってから、引き取りを待つ日数
 QTY_TOLERANCE = 0.02  # 計量の誤差として許す割合。現場の値が決まったら直す
 
 
 @dataclass
 class Anomaly:
     id: str
-    kind: str  # forgotten / stagnant / qty_mismatch / bunno_total / unrequested / overdue_return / request_unscanned
+    kind: str  # forgotten / stagnant / qty_mismatch / bunno_total / unrequested / overdue_return / pickup_waiting / request_unscanned
     order_no: str
     bunno: int | None
     title: str
@@ -246,6 +247,22 @@ def _naishoku(conn, orders, today) -> list[Anomaly]:
                 )
             )
             continue
+        if req["progress"] == FINISHED and req["progress_at"]:
+            # 内職さんは終わっている。待っているのはこちらの引き取り
+            done = datetime.fromisoformat(req["progress_at"]).astimezone().date()
+            if (today - done).days >= PICKUP_DAYS:
+                out.append(
+                    Anomaly(
+                        id=f"pickup_waiting:{key[0]}:{key[1]}",
+                        kind="pickup_waiting",
+                        order_no=key[0],
+                        bunno=key[1],
+                        title=f"{_who(*key)}は{req['worker']}さんが{done.isoformat()}に検査済にしましたが、{(today - done).days}日経っても納品で受け取っていません。",
+                        evidence={**common, "worker": req["worker"], "finished_at": req["progress_at"],
+                                  "worker_due_date": req["due_date"], "qty": req["qty"]},
+                    )
+                )
+            continue
         due = date.fromisoformat(req["due_date"]) if req["due_date"] else None
         if due and due < today:
             out.append(
@@ -254,8 +271,9 @@ def _naishoku(conn, orders, today) -> list[Anomaly]:
                     kind="overdue_return",
                     order_no=key[0],
                     bunno=key[1],
-                    title=f"{_who(*key)}は{req['worker']}さんへの納期{due.isoformat()}を{(today - due).days}日過ぎましたが、納品されていません。",
-                    evidence={**common, "worker": req["worker"], "worker_due_date": due.isoformat(), "qty": req["qty"]},
+                    title=f"{_who(*key)}は{req['worker']}さんへの納期{due.isoformat()}を{(today - due).days}日過ぎましたが、納品されていません（進捗は{req['progress']}）。",
+                    evidence={**common, "worker": req["worker"], "worker_due_date": due.isoformat(), "qty": req["qty"],
+                              "progress": req["progress"], "progress_at": req["progress_at"]},
                 )
             )
     # 依頼はあるのに、そのカードが社外検査で読まれていない
