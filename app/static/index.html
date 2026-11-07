@@ -283,7 +283,11 @@ async function refreshList() {
     || '<tr><td colspan="7" class="empty">いまはありません</td></tr>';
 }
 
-const KIND = { forgotten:"かざし忘れ", stagnant:"滞留", qty_mismatch:"数量の照合", bunno_total:"分納の合計" };
+const KIND = {
+  forgotten:"かざし忘れ", stagnant:"滞留", qty_mismatch:"数量の照合", bunno_total:"分納の合計",
+  unrequested:"内職依頼の入力待ち", overdue_return:"内職さんの納期切れ", pickup_waiting:"引き取り待ち",
+  request_unscanned:"依頼とカードの食い違い",
+};
 const ORDER = { "今日中":0, "今週中":1, "様子見":2 };
 let anomTimer;
 function renderAnoms(data) {
